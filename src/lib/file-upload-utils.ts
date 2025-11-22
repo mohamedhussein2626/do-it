@@ -1,3 +1,26 @@
+interface PlanResponse {
+  id: number;
+  name: string;
+  status: string;
+  maxFileSize: number;
+  price: number;
+}
+
+interface UserProfileResponse {
+  planId: number | null;
+  planName: string | null;
+}
+
+interface PlansApiResponse {
+  success: boolean;
+  plans: PlanResponse[];
+}
+
+interface ProfileApiResponse {
+  success: boolean;
+  user: UserProfileResponse;
+}
+
 /**
  * Validates file size against user's plan limit
  * Returns error message if file is too large, null if valid
@@ -15,8 +38,8 @@ export async function validateFileSize(file: File): Promise<{
       fetch("/api/admin/plans"),
     ]);
 
-    const profileData = await profileRes.json();
-    const plansData = await plansRes.json();
+    const profileData = await profileRes.json() as ProfileApiResponse;
+    const plansData = await plansRes.json() as PlansApiResponse;
 
     if (!profileData.success || !plansData.success) {
       // If we can't fetch plan info, allow upload (server will validate)
@@ -24,16 +47,16 @@ export async function validateFileSize(file: File): Promise<{
     }
 
     const user = profileData.user;
-    const plans = plansData.plans.filter((p: any) => p.status === "ACTIVE");
+    const plans = plansData.plans.filter((p: PlanResponse) => p.status === "ACTIVE");
 
     // Find user's current plan
-    let userPlan = null;
+    let userPlan: PlanResponse | null = null;
     if (user.planId) {
-      userPlan = plans.find((p: any) => p.id === user.planId);
+      userPlan = plans.find((p: PlanResponse) => p.id === user.planId) || null;
     } else if (user.planName) {
-      userPlan = plans.find((p: any) =>
-        p.name.toLowerCase().includes(user.planName.toLowerCase())
-      );
+      userPlan = plans.find((p: PlanResponse) =>
+        p.name.toLowerCase().includes(user.planName?.toLowerCase() || "")
+      ) || null;
     }
 
     // Default to 32MB if no plan found
@@ -44,10 +67,10 @@ export async function validateFileSize(file: File): Promise<{
     if (file.size > maxFileSizeBytes) {
       // Find plans with larger file size limits
       const largerPlans = plans
-        .filter((p: any) => p.maxFileSize > maxFileSizeMB)
-        .sort((a: any, b: any) => a.maxFileSize - b.maxFileSize)
+        .filter((p: PlanResponse) => p.maxFileSize > maxFileSizeMB)
+        .sort((a: PlanResponse, b: PlanResponse) => a.maxFileSize - b.maxFileSize)
         .slice(0, 3) // Show top 3 plans
-        .map((p: any) => ({
+        .map((p: PlanResponse) => ({
           id: p.id,
           name: p.name,
           maxFileSize: p.maxFileSize,

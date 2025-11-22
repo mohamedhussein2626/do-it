@@ -206,6 +206,7 @@ export async function canUserCreatePodcast(userId: string): Promise<{
             numberOfFiles: true,
             numberOfEssayWriter: true,
             numberOfEssayGrader: true,
+            maxFileSize: true,
           },
         },
         subscriptions: {
@@ -218,6 +219,7 @@ export async function canUserCreatePodcast(userId: string): Promise<{
                 numberOfFiles: true,
                 numberOfEssayWriter: true,
                 numberOfEssayGrader: true,
+                maxFileSize: true,
               },
             },
           },
@@ -253,6 +255,7 @@ export async function canUserCreatePodcast(userId: string): Promise<{
           numberOfFiles: true,
           numberOfEssayWriter: true,
           numberOfEssayGrader: true,
+          maxFileSize: true,
         },
       });
       
@@ -282,6 +285,7 @@ export async function canUserCreatePodcast(userId: string): Promise<{
         numberOfFiles: activePlan.numberOfFiles,
         numberOfEssayWriter: activePlan.numberOfEssayWriter,
         numberOfEssayGrader: activePlan.numberOfEssayGrader,
+        maxFileSize: activePlan.maxFileSize || 32,
       },
     };
   } catch (error) {
