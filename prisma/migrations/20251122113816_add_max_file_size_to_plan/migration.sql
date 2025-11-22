@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Plan" ADD COLUMN     "maxFileSize" INTEGER NOT NULL DEFAULT 32;
