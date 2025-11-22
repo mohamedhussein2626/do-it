@@ -35,3 +35,6 @@ yarn-error.log*
 .vercel
 
 /public/uploads/audio/
+
+
+ENV-Values.txt
