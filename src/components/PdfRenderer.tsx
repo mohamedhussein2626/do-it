@@ -43,6 +43,7 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
   const [scale, setScale] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
   const [renderedScale, setRenderedScale] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const isLoading = renderedScale !== scale;
 
@@ -172,7 +173,24 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
       <div className="flex-1 w-full max-h-screen">
         <SimpleBar autoHide={false} className="max-h-[calc(100vh-10rem)]">
           <div ref={ref}>
-            <Document
+            {loadError ? (
+              <div className="flex flex-col items-center justify-center h-[calc(100vh-10rem)] p-8">
+                <div className="text-center max-w-md">
+                  <p className="text-red-600 font-semibold mb-2">Failed to load PDF file</p>
+                  <p className="text-gray-600 text-sm mb-4">{loadError}</p>
+                  <Button
+                    onClick={() => {
+                      setLoadError(null);
+                      window.location.reload();
+                    }}
+                    variant="outline"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Document
               loading={
                 <div className="flex justify-center">
                   <Loader2 className="my-24 h-6 w-6 animate-spin" />
@@ -180,11 +198,45 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
               }
               onLoadError={(error) => {
                 console.error("PDF load error details:", error);
-                const errorMessage = error?.message || "Unknown error";
+                console.error("PDF URL:", url);
+                console.error("Error name:", error?.name);
+                console.error("Error message:", error?.message);
+                
+                // Provide more helpful error messages
+                let errorMessage = "Unknown error";
+                if (error?.message) {
+                  errorMessage = error.message;
+                } else if (error?.name) {
+                  errorMessage = error.name;
+                }
+                
+                // Check if it's a network/CORS issue
+                if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+                  errorMessage = "Failed to load PDF. Please check your connection and try again.";
+                } else if (errorMessage.includes("Invalid PDF") || errorMessage.includes("Invalid PDF structure")) {
+                  errorMessage = "The PDF file appears to be corrupted or invalid. Please try uploading it again.";
+                }
+                
+                setLoadError(errorMessage);
                 toast.error(`Error loading PDF: ${errorMessage}`);
               }}
-              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-              file={url}
+              onLoadSuccess={({ numPages }) => {
+                console.log("PDF loaded successfully:", numPages, "pages");
+                setNumPages(numPages);
+                setLoadError(null); // Clear any previous errors
+              }}
+              file={{
+                url: url,
+                httpHeaders: {
+                  'Accept': 'application/pdf',
+                },
+                withCredentials: false,
+              }}
+              options={{
+                cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/cmaps/`,
+                cMapPacked: true,
+                standardFontDataUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/standard_fonts/`,
+              }}
               className="max-h-full"
             >
               {isLoading && renderedScale ? (
@@ -212,6 +264,7 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
                 onRenderSuccess={() => setRenderedScale(scale)}
               />
             </Document>
+            )}
           </div>
         </SimpleBar>
       </div>

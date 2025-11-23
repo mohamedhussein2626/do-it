@@ -10,6 +10,21 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for file serving
 
 /**
+ * Handle OPTIONS request for CORS preflight
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Range",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
+
+/**
  * Serve files from R2 with authentication check
  * This ensures users can only access their own files
  */
@@ -99,16 +114,35 @@ export async function GET(
     // Determine content type
     const contentType = file.fileType || response.ContentType || "application/octet-stream";
 
+    // Validate PDF file if it's a PDF
+    if (contentType === "application/pdf") {
+      // Check PDF header
+      const pdfHeader = buffer.slice(0, 4).toString();
+      if (pdfHeader !== '%PDF') {
+        console.error(`Invalid PDF header: "${pdfHeader}" (expected "%PDF")`);
+        return NextResponse.json(
+          { 
+            error: "Invalid PDF file",
+            message: "The file does not appear to be a valid PDF. It may be corrupted.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Return the file with appropriate headers
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": contentType,
         "Content-Length": buffer.length.toString(),
         "Cache-Control": "public, max-age=3600", // Cache for 1 hour
-        // CORS headers for PDF.js
+        // CORS headers for PDF.js - must be specific for production
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Range",
+        "Accept-Ranges": "bytes",
+        // Additional headers for PDF.js compatibility
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
