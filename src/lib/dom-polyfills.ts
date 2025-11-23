@@ -6,10 +6,26 @@
  */
 
 // Ensure we're in a Node.js environment
-const globalObj = typeof global !== 'undefined' ? global : typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+// Use multiple checks to ensure we get the right global object
+interface GlobalWithDOMMatrix {
+  DOMMatrix?: unknown;
+  DOMParser?: unknown;
+}
+
+let globalObj: GlobalWithDOMMatrix;
+if (typeof global !== 'undefined') {
+  globalObj = global as GlobalWithDOMMatrix;
+} else if (typeof globalThis !== 'undefined') {
+  globalObj = globalThis as GlobalWithDOMMatrix;
+} else if (typeof window !== 'undefined') {
+  globalObj = window as unknown as GlobalWithDOMMatrix;
+} else {
+  globalObj = {} as GlobalWithDOMMatrix;
+}
 
 // Polyfill DOMMatrix for Node.js (required by pdfjs-dist)
-if (!(globalObj as any).DOMMatrix) {
+// This MUST be set up before pdf-parse or pdfjs-dist are imported
+if (!globalObj.DOMMatrix) {
   // Minimal DOMMatrix polyfill
   const DOMMatrixPolyfill = class DOMMatrix {
     a: number = 1;
@@ -89,35 +105,95 @@ if (!(globalObj as any).DOMMatrix) {
       const sin = Math.sin(angle);
       return this.multiply(new DOMMatrix([cos, sin, -sin, cos, 0, 0]));
     }
+    
+    // Static methods required by TypeScript DOMMatrix interface
+    static fromFloat32Array(array32: Float32Array): DOMMatrix {
+      const matrix = new DOMMatrix();
+      if (array32.length >= 6) {
+        matrix.a = array32[0] || 1;
+        matrix.b = array32[1] || 0;
+        matrix.c = array32[2] || 0;
+        matrix.d = array32[3] || 1;
+        matrix.e = array32[4] || 0;
+        matrix.f = array32[5] || 0;
+        matrix.m11 = matrix.a;
+        matrix.m12 = matrix.b;
+        matrix.m21 = matrix.c;
+        matrix.m22 = matrix.d;
+        matrix.m41 = matrix.e;
+        matrix.m42 = matrix.f;
+      }
+      return matrix;
+    }
+    
+    static fromFloat64Array(array64: Float64Array): DOMMatrix {
+      const matrix = new DOMMatrix();
+      if (array64.length >= 6) {
+        matrix.a = array64[0] || 1;
+        matrix.b = array64[1] || 0;
+        matrix.c = array64[2] || 0;
+        matrix.d = array64[3] || 1;
+        matrix.e = array64[4] || 0;
+        matrix.f = array64[5] || 0;
+        matrix.m11 = matrix.a;
+        matrix.m12 = matrix.b;
+        matrix.m21 = matrix.c;
+        matrix.m22 = matrix.d;
+        matrix.m41 = matrix.e;
+        matrix.m42 = matrix.f;
+      }
+      return matrix;
+    }
+    
+    static fromMatrix(other?: { a?: number; b?: number; c?: number; d?: number; e?: number; f?: number }): DOMMatrix {
+      const matrix = new DOMMatrix();
+      if (other) {
+        matrix.a = other.a ?? 1;
+        matrix.b = other.b ?? 0;
+        matrix.c = other.c ?? 0;
+        matrix.d = other.d ?? 1;
+        matrix.e = other.e ?? 0;
+        matrix.f = other.f ?? 0;
+        matrix.m11 = matrix.a;
+        matrix.m12 = matrix.b;
+        matrix.m21 = matrix.c;
+        matrix.m22 = matrix.d;
+        matrix.m41 = matrix.e;
+        matrix.m42 = matrix.f;
+      }
+      return matrix;
+    }
   };
   
   // Set on both global and globalThis for maximum compatibility
-  (globalObj as any).DOMMatrix = DOMMatrixPolyfill;
+  globalObj.DOMMatrix = DOMMatrixPolyfill;
   if (typeof global !== 'undefined') {
-    (global as any).DOMMatrix = DOMMatrixPolyfill;
+    (global as GlobalWithDOMMatrix).DOMMatrix = DOMMatrixPolyfill;
   }
   if (typeof globalThis !== 'undefined') {
-    (globalThis as any).DOMMatrix = DOMMatrixPolyfill;
+    (globalThis as GlobalWithDOMMatrix).DOMMatrix = DOMMatrixPolyfill;
   }
   
   console.log("✅ DOMMatrix polyfill installed");
 }
 
 // Polyfill other DOM APIs that might be needed
-if (!(globalObj as any).DOMParser) {
+if (!globalObj.DOMParser) {
   const DOMParserPolyfill = class DOMParser {
-    parseFromString(str: string, type: string): Document {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    parseFromString(_str: string, _type: string): Document {
       // Minimal implementation - return empty document
+      // Parameters are required by the DOMParser interface but not used in this minimal polyfill
       return {} as Document;
     }
   };
   
-  (globalObj as any).DOMParser = DOMParserPolyfill;
+  globalObj.DOMParser = DOMParserPolyfill;
   if (typeof global !== 'undefined') {
-    (global as any).DOMParser = DOMParserPolyfill;
+    (global as GlobalWithDOMMatrix).DOMParser = DOMParserPolyfill;
   }
   if (typeof globalThis !== 'undefined') {
-    (globalThis as any).DOMParser = DOMParserPolyfill;
+    (globalThis as GlobalWithDOMMatrix).DOMParser = DOMParserPolyfill;
   }
 }
 
