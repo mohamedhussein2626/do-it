@@ -4,6 +4,8 @@
  * Reduces Vision API costs by 70-85% compared to page-to-PNG conversion
  */
 
+// Import polyfills FIRST before any pdf-parse usage
+import "./dom-polyfills";
 import OpenAI from "openai";
 
 const openai = new OpenAI({

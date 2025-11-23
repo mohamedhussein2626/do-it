@@ -19,6 +19,22 @@ const nextConfig: NextConfig = {
     if (isServer) {
       config.externals = config.externals || [];
       // Don't externalize pdf-parse, let it bundle
+      
+      // Polyfill browser APIs that pdf-parse might need
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        canvas: false,
+        encoding: false,
+      };
+      
+      // Inject polyfills before pdf-parse loads
+      // This ensures DOMMatrix is available when pdfjs-dist loads
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          // This will be handled by the dom-polyfills.ts import
+        })
+      );
     }
     
     return config;

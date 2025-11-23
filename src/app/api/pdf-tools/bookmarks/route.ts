@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+// Import polyfills FIRST before any pdf-parse usage
+import "@/lib/dom-polyfills";
 import { generateBookmarks } from "@/lib/pdf-tools";
 
 export const maxDuration = 60;

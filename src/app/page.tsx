@@ -859,7 +859,7 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12 max-w-6xl mx-auto">
             {/* Reading Insights */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl">
               <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg mb-6">

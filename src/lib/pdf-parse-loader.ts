@@ -3,6 +3,9 @@
  * Handles both CommonJS (require) and ESM (import) module systems
  */
 
+// Import polyfills FIRST before any pdf-parse imports
+import "./dom-polyfills";
+
 // Type definitions for pdf-parse
 interface PdfParseOptions {
   max?: number;
@@ -56,27 +59,20 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
   let pdfParseModule: PdfParseModule | null = null;
   const errors: string[] = [];
 
-  // Strategy 1: Try require() first (CommonJS - works in Node.js runtime)
+  // Use dynamic import() which works in both dev and prod ESM contexts
+  // Polyfills are already loaded via the import at the top of the file
   try {
-    // Use Function constructor to avoid TypeScript compilation issues
-    const requireFunc = new Function('moduleName', 'return require(moduleName)') as (moduleName: string) => PdfParseModule;
-    pdfParseModule = requireFunc('pdf-parse');
-    console.log("✅ Loaded pdf-parse via require()");
-  } catch (requireError) {
-    const errorMsg = requireError instanceof Error ? requireError.message : String(requireError);
-    errors.push(`require() failed: ${errorMsg}`);
-    console.log("⚠️ require() failed, trying import()...");
-  }
-
-  // Strategy 2: Try dynamic import() (ESM)
-  if (!pdfParseModule) {
-    try {
-      pdfParseModule = await import("pdf-parse") as PdfParseModule;
-      console.log("✅ Loaded pdf-parse via dynamic import()");
-    } catch (importError) {
-      const errorMsg = importError instanceof Error ? importError.message : String(importError);
-      errors.push(`import() failed: ${errorMsg}`);
-      console.error("❌ Dynamic import() also failed");
+    // Use dynamic import which works in ESM contexts (production)
+    pdfParseModule = await import("pdf-parse") as PdfParseModule;
+    console.log("✅ Loaded pdf-parse via dynamic import()");
+  } catch (importError) {
+    const errorMsg = importError instanceof Error ? importError.message : String(importError);
+    errors.push(`import() failed: ${errorMsg}`);
+    console.error("❌ Dynamic import() failed:", errorMsg);
+    
+    // Log more details for debugging
+    if (importError instanceof Error && importError.stack) {
+      console.error("❌ Import error stack:", importError.stack);
     }
   }
 

@@ -3,6 +3,8 @@
  * All features work 100% offline without external APIs
  */
 
+// Import polyfills FIRST before any pdf-parse usage
+import "./dom-polyfills";
 import { loadPdfParse } from "./pdf-parse-loader";
 import { db } from "@/db";
 import { getServerSession } from "@/lib/auth-api";
