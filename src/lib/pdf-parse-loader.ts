@@ -271,10 +271,18 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
   // Create a smart wrapper that handles both function and class cases
   const createSmartWrapper = (fn: PdfParseFunction | PdfParseClass): PdfParseFunction => {
     return async (buffer: Buffer, options?: PdfParseOptions): Promise<PdfParseResult> => {
-      // First, try calling it as a function
+      console.log("🔧 Attempting to parse PDF...");
+      console.log(`📦 Buffer size: ${buffer.length} bytes`);
+      
+      // First, try calling it as a function (most common case for pdf-parse)
       if (typeof fn === 'function' && !isClass(fn)) {
         try {
-          return await (fn as PdfParseFunction)(buffer, options);
+          console.log("📝 Trying pdf-parse as function...");
+          const result = await (fn as PdfParseFunction)(buffer, options);
+          console.log("✅ pdf-parse function call succeeded");
+          console.log("📊 Result keys:", Object.keys(result));
+          console.log("📊 Text length:", result.text ? result.text.length : 0);
+          return result;
         } catch (e) {
           // If it fails with "cannot be invoked without 'new'", use the class wrapper
           if (e instanceof TypeError && e.message.includes('cannot be invoked without \'new\'')) {
@@ -282,10 +290,12 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
             return await wrapClassAsFunction(fn as unknown as PdfParseClass)(buffer, options);
           }
           // Otherwise, re-throw the error
+          console.error("❌ Function call error:", e);
           throw e;
         }
       } else {
         // It's a class, use the class wrapper
+        console.log("📝 pdf-parse is a class, using class instantiation");
         return await wrapClassAsFunction(fn as unknown as PdfParseClass)(buffer, options);
       }
     };

@@ -96,12 +96,45 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
   numPages: number;
   pageTexts: string[]; // Text for each page
 }> {
-  const pdfParse = await loadPdfParse();
-  const result = await pdfParse(buffer);
+  console.log("📄 Starting PDF text extraction...");
+  console.log(`📦 Buffer size: ${buffer.length} bytes`);
+  
+  // Validate buffer
+  if (!buffer || buffer.length === 0) {
+    throw new Error("PDF buffer is empty");
+  }
+  
+  // Check if it's a valid PDF
+  const header = buffer.slice(0, 4).toString();
+  if (header !== '%PDF') {
+    throw new Error(`Invalid PDF file: expected PDF header, got "${header}"`);
+  }
+  
+  console.log(`✅ PDF header valid: ${header}`);
+  
+  try {
+    const pdfParse = await loadPdfParse();
+    console.log("✅ pdf-parse function loaded");
+    
+    const result = await pdfParse(buffer);
+    console.log("✅ PDF parsed successfully");
+    console.log("📊 Parse result keys:", Object.keys(result));
+    console.log("📊 Result structure:", {
+      hasNumpages: 'numpages' in result,
+      hasNumPages: 'numPages' in result,
+      hasText: 'text' in result,
+      hasDoc: 'doc' in result,
+      numpagesValue: result.numpages,
+      numPagesValue: result.numPages,
+      textLength: result.text ? result.text.length : 0,
+      textPreview: result.text ? result.text.substring(0, 100) : 'N/A',
+    });
 
-  const numPages = result.numpages || result.numPages || 0;
-  let fullText = result.text || "";
-  const pageTexts: string[] = [];
+    const numPages = result.numpages || result.numPages || 0;
+    let fullText = result.text || "";
+    const pageTexts: string[] = [];
+    
+    console.log(`📄 Extracted ${numPages} pages, ${fullText.length} characters`);
 
   // Try to get per-page text from pdf-parse if available
   // Check if result has a doc object with getText() method that returns pages
@@ -157,11 +190,18 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
     }
   }
 
-  return {
-    text: fullText,
-    numPages,
-    pageTexts,
-  };
+    console.log(`✅ Final result: ${numPages} pages, ${fullText.length} characters, ${pageTexts.length} page texts`);
+    
+    return {
+      text: fullText,
+      numPages,
+      pageTexts,
+    };
+  } catch (error) {
+    console.error("❌ Error extracting text from PDF:", error);
+    console.error("❌ Error details:", error instanceof Error ? error.stack : String(error));
+    throw new Error(`Failed to extract text from PDF: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 // ============================================================================
@@ -169,25 +209,36 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
 // ============================================================================
 
 export async function getReadingInsights(fileId: string): Promise<ReadingInsights> {
-  const buffer = await getPdfBuffer(fileId);
-  const { text, numPages } = await extractTextFromPdf(buffer);
+  console.log(`📊 Getting reading insights for file: ${fileId}`);
+  try {
+    const buffer = await getPdfBuffer(fileId);
+    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
+    
+    const { text, numPages } = await extractTextFromPdf(buffer);
+    console.log(`✅ Extracted text: ${text.length} chars, ${numPages} pages`);
 
-  // Calculate metrics
-  const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
-  const totalWordCount = words.length;
-  const totalCharacterCount = text.length;
-  const totalPages = numPages;
-  const estimatedReadingTime = Math.ceil(totalWordCount / 200); // 200 words/min
-  const averageWordsPerPage =
-    totalPages > 0 ? Math.round(totalWordCount / totalPages) : 0;
+    // Calculate metrics
+    const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+    const totalWordCount = words.length;
+    const totalCharacterCount = text.length;
+    const totalPages = numPages || 1; // Default to 1 if 0
+    const estimatedReadingTime = Math.ceil(totalWordCount / 200); // 200 words/min
+    const averageWordsPerPage =
+      totalPages > 0 ? Math.round(totalWordCount / totalPages) : 0;
 
-  return {
-    totalWordCount,
-    totalCharacterCount,
-    totalPages,
-    estimatedReadingTime,
-    averageWordsPerPage,
-  };
+    console.log(`📊 Calculated metrics: ${totalWordCount} words, ${totalCharacterCount} chars, ${totalPages} pages`);
+
+    return {
+      totalWordCount,
+      totalCharacterCount,
+      totalPages,
+      estimatedReadingTime,
+      averageWordsPerPage,
+    };
+  } catch (error) {
+    console.error("❌ Error in getReadingInsights:", error);
+    throw error;
+  }
 }
 
 // ============================================================================
@@ -241,30 +292,47 @@ export async function getKeywordFrequencies(
   fileId: string,
   topN: number = 20
 ): Promise<KeywordFrequency[]> {
-  const buffer = await getPdfBuffer(fileId);
-  const { text } = await extractTextFromPdf(buffer);
+  console.log(`🔍 Getting keyword frequencies for file: ${fileId}, topN: ${topN}`);
+  try {
+    const buffer = await getPdfBuffer(fileId);
+    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
+    
+    const { text } = await extractTextFromPdf(buffer);
+    console.log(`✅ Extracted text: ${text.length} characters`);
 
-  // Extract words
-  const words = text
-    .split(/\s+/)
-    .map(cleanWord)
-    .filter((w) => w.length > 1 && !isStopword(w));
-
-  // Count frequencies
-  const frequencyMap = new Map<string, number>();
-  for (const word of words) {
-    if (word) {
-      frequencyMap.set(word, (frequencyMap.get(word) || 0) + 1);
+    if (!text || text.trim().length === 0) {
+      console.warn("⚠️ No text extracted from PDF");
+      return [];
     }
+
+    // Extract words
+    const words = text
+      .split(/\s+/)
+      .map(cleanWord)
+      .filter((w) => w.length > 1 && !isStopword(w));
+
+    console.log(`📝 Found ${words.length} valid words after filtering`);
+
+    // Count frequencies
+    const frequencyMap = new Map<string, number>();
+    for (const word of words) {
+      if (word) {
+        frequencyMap.set(word, (frequencyMap.get(word) || 0) + 1);
+      }
+    }
+
+    // Convert to array and sort
+    const frequencies: KeywordFrequency[] = Array.from(frequencyMap.entries())
+      .map(([word, count]) => ({ word, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, topN);
+
+    console.log(`✅ Found ${frequencies.length} keywords`);
+    return frequencies;
+  } catch (error) {
+    console.error("❌ Error in getKeywordFrequencies:", error);
+    throw error;
   }
-
-  // Convert to array and sort
-  const frequencies: KeywordFrequency[] = Array.from(frequencyMap.entries())
-    .map(([word, count]) => ({ word, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, topN);
-
-  return frequencies;
 }
 
 // ============================================================================
@@ -277,16 +345,21 @@ export async function getKeywordFrequencies(
  * want to use pdfjs to get actual text blocks with positioning
  */
 export async function generateBookmarks(fileId: string): Promise<Bookmark[]> {
-  const buffer = await getPdfBuffer(fileId);
-  const { numPages, pageTexts } = await extractTextFromPdf(buffer);
-
-  const bookmarks: Bookmark[] = [];
-
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const pageText = pageTexts[pageNum - 1] || "";
+  console.log(`📑 Generating bookmarks for file: ${fileId}`);
+  try {
+    const buffer = await getPdfBuffer(fileId);
+    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
     
-    // Extract first non-empty line
-    const lines = pageText
+    const { numPages, pageTexts } = await extractTextFromPdf(buffer);
+    console.log(`✅ Extracted ${numPages} pages, ${pageTexts.length} page texts`);
+
+    const bookmarks: Bookmark[] = [];
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const pageText = pageTexts[pageNum - 1] || "";
+      
+      // Extract first non-empty line
+      const lines = pageText
       .split(/\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
@@ -319,6 +392,11 @@ export async function generateBookmarks(fileId: string): Promise<Bookmark[]> {
     });
   }
 
+  console.log(`✅ Generated ${bookmarks.length} bookmarks`);
   return bookmarks;
+  } catch (error) {
+    console.error("❌ Error in generateBookmarks:", error);
+    throw error;
+  }
 }
 
