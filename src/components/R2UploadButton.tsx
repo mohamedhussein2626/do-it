@@ -122,11 +122,35 @@ const R2UploadButton = ({
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          // Handle both JSON and non-JSON error responses
+          let errorData: { error?: string } = {};
+          try {
+            const text = await response.text();
+            if (text) {
+              try {
+                errorData = JSON.parse(text);
+              } catch {
+                // If not JSON, use the text as error message
+                errorData = { error: text || response.statusText || "Upload failed" };
+              }
+            } else {
+              errorData = { error: response.statusText || "Upload failed" };
+            }
+          } catch {
+            errorData = { error: response.statusText || "Upload failed" };
+          }
           throw new Error(errorData.error || "Upload failed");
         }
 
-        const result = await response.json();
+        // Parse response as JSON, handle errors
+        let result;
+        try {
+          const text = await response.text();
+          result = JSON.parse(text);
+        } catch (parseError) {
+          console.error("Failed to parse upload response:", parseError);
+          throw new Error("Invalid response from server. Please try again.");
+        }
         if (!result.success || !result.file?.key) {
           throw new Error("Upload failed");
         }

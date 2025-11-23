@@ -255,7 +255,7 @@ All three tools process PDFs **completely offline** on your server:
 
 ### Technical Implementation
 
-- Uses `pdf-parse` library for PDF text extraction
+- Uses `pdf-parse` library for PDF text extraction (Reading Insights, Keyword Finder, Bookmarks)
 - All processing happens server-side in Node.js
 - No client-side data transmission
 - Secure file access with user authentication
@@ -267,11 +267,11 @@ All three tools process PDFs **completely offline** on your server:
 ### Backend Structure
 
 ```
-src/lib/pdf-tools.ts          # Core utility functions
+src/lib/pdf-tools.ts              # Core utility functions (text-based)
 src/app/api/pdf-tools/
-  ├── reading-insights/       # Reading insights API
-  ├── keyword-finder/         # Keyword finder API
-  └── bookmarks/              # Bookmarks API
+  ├── reading-insights/           # Reading insights API
+  ├── keyword-finder/            # Keyword finder API
+  └── bookmarks/                 # Bookmarks API
 ```
 
 ### Key Functions
@@ -362,7 +362,7 @@ const response = await fetch('/api/pdf-tools/bookmarks', {
   body: JSON.stringify({ fileId: 'your-file-id' })
 });
 const { bookmarks } = await response.json();
-```
+
 
 ---
 
@@ -482,6 +482,9 @@ const ENGLISH_STOPWORDS = new Set([
 ### Required Packages
 
 - `pdf-parse`: ^2.4.3 - PDF text extraction
+- `pdfjs-dist`: ^3.4.120 - PDF.js for image extraction
+- `jszip`: ^3.10.1 - ZIP file creation (client-side)
+- `@types/jszip`: ^3.4.1 - TypeScript types for JSZip
 - `@aws-sdk/client-s3`: ^3.907.0 - R2 storage access
 - `next`: 15.4.1 - Next.js framework
 - `react`: 18.2.0 - React UI library
@@ -569,5 +572,14 @@ All tools work **100% offline** with **zero external API calls**, ensuring your 
 ---
 
 *Last Updated: January 2025*
-*Version: 1.0.0*
+*Version: 1.1.0*
+
+### Changelog
+
+
+**Version 1.0.0 (January 2025)**
+- 🎉 Initial release
+- 📊 Reading Insights feature
+- 🔍 Keyword Finder feature
+- 📑 Auto Bookmarks feature
 

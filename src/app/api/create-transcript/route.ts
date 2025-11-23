@@ -251,10 +251,18 @@ Create a well-structured transcript now:`;
     let errorMessage = "Failed to create transcript";
     let errorDetails = "Unknown error occurred";
     
+    // Type guard for error objects with status/code
+    interface ErrorWithStatus {
+      status?: number;
+      code?: number;
+      message?: string;
+    }
+    
     if (error instanceof Error) {
       errorDetails = error.message || "Unknown error";
+      const errorWithStatus = error as Error & ErrorWithStatus;
       // Handle 402 Payment Required (insufficient credits)
-      if (error.message.includes("402") || (error as any)?.status === 402 || (error as any)?.code === 402) {
+      if (error.message.includes("402") || errorWithStatus?.status === 402 || errorWithStatus?.code === 402) {
         errorMessage = "Insufficient API credits. Please add credits to your OpenAI account to continue.";
         errorDetails = error.message || "Your OpenAI account has insufficient credits.";
         return NextResponse.json(
@@ -277,7 +285,8 @@ Create a well-structured transcript now:`;
     } else {
       errorDetails = String(error);
       // Check for 402 in non-Error objects
-      if ((error as any)?.status === 402 || (error as any)?.code === 402) {
+      const errorWithStatus = error as ErrorWithStatus;
+      if (errorWithStatus?.status === 402 || errorWithStatus?.code === 402) {
         return NextResponse.json(
           {
             error: "Insufficient API credits. Please add credits to your OpenAI account to continue.",

@@ -7,7 +7,7 @@ import { Readable } from "stream";
 
 // Force Node.js runtime for file serving
 export const runtime = 'nodejs';
-export const maxDuration = 60; // 1 minute for file serving
+export const maxDuration = 300; // 5 minutes for large file serving
 
 /**
  * Handle OPTIONS request for CORS preflight
@@ -101,40 +101,75 @@ export async function GET(
       );
     }
 
-    // Convert the stream to a buffer
-    const chunks: Uint8Array[] = [];
-    const stream = response.Body as Readable;
-    
-    for await (const chunk of stream) {
-      chunks.push(chunk as Uint8Array);
-    }
-    
-    const buffer = Buffer.concat(chunks);
-
     // Determine content type
     const contentType = file.fileType || response.ContentType || "application/octet-stream";
+    const contentLength = response.ContentLength?.toString() || "unknown";
 
-    // Validate PDF file if it's a PDF
-    if (contentType === "application/pdf") {
-      // Check PDF header
-      const pdfHeader = buffer.slice(0, 4).toString();
-      if (pdfHeader !== '%PDF') {
-        console.error(`Invalid PDF header: "${pdfHeader}" (expected "%PDF")`);
-        return NextResponse.json(
-          { 
-            error: "Invalid PDF file",
-            message: "The file does not appear to be a valid PDF. It may be corrupted.",
-          },
-          { status: 400 }
-        );
-      }
-    }
+    // Stream the file directly instead of loading into memory
+    // This is crucial for large files - prevents memory issues and timeouts
+    const stream = response.Body as Readable;
+    
+    // For small files (< 10MB), we can validate PDF header
+    // For large files, let the client (PDF.js) handle validation to avoid timeouts
+    const shouldValidateHeader = contentType === "application/pdf" && 
+                                  response.ContentLength && 
+                                  response.ContentLength < 10 * 1024 * 1024; // 10MB
+    
+    // Create a readable stream for Next.js Response
+    // This allows streaming large files without loading them into memory
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        try {
+          let firstChunkRead = false;
+          
+          for await (const chunk of stream) {
+            const chunkData = new Uint8Array(chunk);
+            
+            // For small PDF files, validate header on first chunk only
+            if (shouldValidateHeader && !firstChunkRead) {
+              firstChunkRead = true;
+              
+              // Check PDF header (first 4 bytes should be '%PDF')
+              if (chunkData.length >= 4) {
+                const header = String.fromCharCode(...chunkData.slice(0, 4));
+                if (header !== '%PDF') {
+                  console.error(`Invalid PDF header: "${header}" (expected "%PDF")`);
+                  // Don't error the stream - let PDF.js handle it
+                  // This prevents breaking large file uploads
+                  console.warn("PDF header validation failed, but continuing stream for client-side validation");
+                }
+              }
+            }
+            
+            // Enqueue the chunk
+            controller.enqueue(chunkData);
+          }
+          controller.close();
+        } catch (error) {
+          console.error("Stream error:", error);
+          try {
+            controller.error(error);
+          } catch (e) {
+            // If controller is already closed, log the error
+            console.error("Controller error:", e);
+          }
+        }
+      },
+      cancel() {
+        // Clean up if stream is cancelled
+        try {
+          stream.destroy?.();
+        } catch {
+          // Ignore cleanup errors
+        }
+      },
+    });
 
     // Return the file with appropriate headers
-    return new NextResponse(buffer, {
+    return new NextResponse(readableStream, {
       headers: {
         "Content-Type": contentType,
-        "Content-Length": buffer.length.toString(),
+        "Content-Length": contentLength,
         "Cache-Control": "public, max-age=3600", // Cache for 1 hour
         // CORS headers for PDF.js - must be specific for production
         "Access-Control-Allow-Origin": "*",
@@ -147,9 +182,26 @@ export async function GET(
     });
   } catch (error) {
     console.error("Error serving file:", error);
+    
+    // Ensure we always return JSON, not HTML
+    const errorMessage = error instanceof Error ? error.message : "Failed to serve file";
+    const errorDetails = error instanceof Error ? error.stack : String(error);
+    
+    console.error("Error details:", errorDetails);
+    
     return NextResponse.json(
-      { error: "Failed to serve file" },
-      { status: 500 }
+      { 
+        error: "Failed to serve file",
+        message: errorMessage,
+        // Only include details in development
+        ...(process.env.NODE_ENV === 'development' && { details: errorDetails })
+      },
+      { 
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+        }
+      }
     );
   }
 }

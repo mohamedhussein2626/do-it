@@ -36,7 +36,7 @@ export interface Bookmark {
 // Helper: Get PDF Buffer from File
 // ============================================================================
 
-async function getPdfBuffer(fileId: string): Promise<Buffer> {
+export async function getPdfBuffer(fileId: string): Promise<Buffer> {
   const session = await getServerSession();
   if (!session) {
     throw new Error("Unauthorized");

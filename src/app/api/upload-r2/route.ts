@@ -144,7 +144,13 @@ export async function POST(request: NextRequest) {
     // Get user session using Better Auth
     const session = await getServerSession();
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { 
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
 
     // Parse form data
@@ -154,7 +160,13 @@ export async function POST(request: NextRequest) {
     const source = (formData.get("source") as string) || "upload"; // "upload", "webpage", "essay_writer", "essay_grader"
 
     if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No file provided" },
+        { 
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
 
     // Validate file type
@@ -164,7 +176,10 @@ export async function POST(request: NextRequest) {
           error:
             "Only PDF, DOC, DOCX, TXT, MD, and image files (JPEG, PNG, GIF, WebP, BMP, TIFF) are allowed",
         },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: { "Content-Type": "application/json" }
+        }
       );
     }
 
@@ -179,7 +194,12 @@ export async function POST(request: NextRequest) {
         { 
           error: `File size must be less than ${maxFileSizeMB}MB. Your current plan allows up to ${maxFileSizeMB}MB per file.` 
         },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
       );
     }
 
@@ -194,7 +214,13 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
       if (!topic) {
-        return NextResponse.json({ error: "Invalid topicId" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Invalid topicId" },
+          { 
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
       }
       validatedTopicId = topic.id;
     }
@@ -308,19 +334,24 @@ export async function POST(request: NextRequest) {
 
       console.log(`✅ Upload complete (File ID: ${createdFile.id}, Chunks: ${chunksCreated})`);
 
-      return NextResponse.json({
-        success: true,
-        file: {
-          id: createdFile.id,
-          key: uploadResult.key,
-          url: fullUrl, // Return the API route URL
-          name: uploadResult.name,
+      return NextResponse.json(
+        {
+          success: true,
+          file: {
+            id: createdFile.id,
+            key: uploadResult.key,
+            url: fullUrl, // Return the API route URL
+            name: uploadResult.name,
+          },
+          chunksCreated,
+          message: chunksCreated > 0 
+            ? "File uploaded and processed successfully" 
+            : "File uploaded but text extraction failed. Content-based features may not work.",
         },
-        chunksCreated,
-        message: chunksCreated > 0 
-          ? "File uploaded and processed successfully" 
-          : "File uploaded but text extraction failed. Content-based features may not work.",
-      });
+        {
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     } catch (error) {
       console.error("❌ Error processing file:", error);
       await db.file.update({
@@ -328,16 +359,34 @@ export async function POST(request: NextRequest) {
         data: { uploadStatus: "FAILED" },
       });
 
+      const errorMessage = error instanceof Error ? error.message : "Failed to process file";
       return NextResponse.json(
-        { error: "Failed to process file" },
-        { status: 500 }
+        { 
+          error: "Failed to process file",
+          message: errorMessage,
+        },
+        { 
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
       );
     }
   } catch (error) {
     console.error("Upload error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+      { 
+        error: "Internal server error",
+        message: errorMessage,
+      },
+      { 
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+        }
+      }
     );
   }
 }

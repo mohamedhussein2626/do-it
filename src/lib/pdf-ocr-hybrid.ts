@@ -389,7 +389,7 @@ async function extractTextFromImages(
         if (text && text.trim() !== "NO_TEXT_FOUND") {
           results.push(text);
         }
-      } catch (visionError) {
+      } catch {
         // DeepSeek doesn't support vision - skip this image and continue with text extraction
         console.log(`Skipping vision extraction for image ${i + 1} (DeepSeek doesn't support vision)`);
       }

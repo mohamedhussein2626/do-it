@@ -8,6 +8,7 @@ import SimpleBar from "simplebar-react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { useResizeDetector } from "react-resize-detector";
 import { toast } from "sonner";
+import { initializePdfWorker } from "@/lib/pdfjs-worker";
 
 interface PdfFullscreenProps {
   fileUrl: string;
@@ -16,13 +17,21 @@ interface PdfFullscreenProps {
 const PdfFullscreen = ({ fileUrl }: PdfFullscreenProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [numPages, setNumPages] = useState<number>();
+  const [workerReady, setWorkerReady] = useState(false);
 
   const { width, ref } = useResizeDetector();
 
   // Ensure worker is configured on client side
   useEffect(() => {
     if (typeof window !== "undefined") {
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+      initializePdfWorker()
+        .then(() => {
+          setWorkerReady(true);
+        })
+        .catch((error) => {
+          console.error("Failed to initialize PDF.js worker:", error);
+          setWorkerReady(true); // Set ready anyway
+        });
     }
   }, []);
 
@@ -43,23 +52,34 @@ const PdfFullscreen = ({ fileUrl }: PdfFullscreenProps) => {
       <DialogContent className="max-w-7xl w-full">
         <SimpleBar autoHide={false} className="max-h-[calc(100vh-10rem)] mt-6">
           <div ref={ref}>
-            <Document
-              loading={
-                <div className="flex justify-center">
-                  <Loader2 className="my-24 h-6 w-6 animate-spin" />
-                </div>
-              }
-              onLoadError={() => {
-                toast.error("Error Loading PDF");
-              }}
-              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-              file={fileUrl}
-              className="max-h-full"
-            >
-              {new Array(numPages).fill(0).map((_, i) => (
-                <Page key={i} width={width ? width : 1} pageNumber={i + 1} />
-              ))}
-            </Document>
+            {!workerReady ? (
+              <div className="flex justify-center">
+                <Loader2 className="my-24 h-6 w-6 animate-spin" />
+              </div>
+            ) : (
+              <Document
+                loading={
+                  <div className="flex justify-center">
+                    <Loader2 className="my-24 h-6 w-6 animate-spin" />
+                  </div>
+                }
+                onLoadError={() => {
+                  toast.error("Error Loading PDF");
+                }}
+                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                file={fileUrl}
+                options={{
+                  cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/cmaps/`,
+                  cMapPacked: true,
+                  standardFontDataUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/standard_fonts/`,
+                }}
+                className="max-h-full"
+              >
+                {new Array(numPages).fill(0).map((_, i) => (
+                  <Page key={i} width={width ? width : 1} pageNumber={i + 1} />
+                ))}
+              </Document>
+            )}
           </div>
         </SimpleBar>
       </DialogContent>

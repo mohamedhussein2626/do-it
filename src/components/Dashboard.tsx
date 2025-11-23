@@ -21,6 +21,9 @@ import {
   CheckSquare,
   AlertTriangle,
   Shield,
+  BarChart3,
+  Search,
+  BookOpen,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MainSidebar from "./layout/MainSidebar";
@@ -254,6 +257,30 @@ const Dashboard = () => {
       iconColor: "text-emerald-600",
       bgColor: "bg-emerald-100",
     },
+    {
+      id: "reading-insights",
+      title: "Reading Insights",
+      description: "Analyze document statistics",
+      icon: BarChart3,
+      iconColor: "text-blue-600",
+      bgColor: "bg-blue-100",
+    },
+    {
+      id: "keyword-finder",
+      title: "Keyword Finder",
+      description: "Find most frequent keywords",
+      icon: Search,
+      iconColor: "text-purple-600",
+      bgColor: "bg-purple-100",
+    },
+    {
+      id: "bookmarks",
+      title: "Bookmarks",
+      description: "Auto-generated table of contents",
+      icon: BookOpen,
+      iconColor: "text-indigo-600",
+      bgColor: "bg-indigo-100",
+    },
   ];
 
   const aiWriterActions = [
@@ -295,6 +322,37 @@ const Dashboard = () => {
 
     if (action.id === "library") {
       router.push("/dashboard/library");
+      return;
+    }
+
+    // For PDF tools, require files
+    if (
+      action.id === "reading-insights" ||
+      action.id === "keyword-finder" ||
+      action.id === "bookmarks"
+    ) {
+      if (!hasFiles) {
+        alert("Please upload a PDF first to use this feature!");
+        return;
+      }
+
+      const latestFile = files?.[0];
+      if (!latestFile) {
+        alert("No files available. Please upload a PDF first!");
+        return;
+      }
+
+      switch (action.id) {
+        case "reading-insights":
+          router.push(`/dashboard/${latestFile.id}/reading-insights`);
+          break;
+        case "keyword-finder":
+          router.push(`/dashboard/${latestFile.id}/keyword-finder`);
+          break;
+        case "bookmarks":
+          router.push(`/dashboard/${latestFile.id}/bookmarks`);
+          break;
+      }
       return;
     }
 
@@ -550,7 +608,7 @@ const Dashboard = () => {
                 Choose what you&apos;d like to do with your documents
               </p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               {quickActions.map((action) => (
                 <div
                   key={action.id}

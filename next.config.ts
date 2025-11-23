@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
   },
   // Ensure proper handling of native modules
   serverExternalPackages: ['pdf-parse'],
+  // Increase body size limit for large file uploads
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '100mb',
+    },
+  },
 };
 
 export default nextConfig;

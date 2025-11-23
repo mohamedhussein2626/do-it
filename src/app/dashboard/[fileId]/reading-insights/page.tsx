@@ -21,6 +21,7 @@ interface FileData {
   name: string;
   url: string;
   key: string | null;
+  fileType: string | null;
 }
 
 export default function ReadingInsightsPage({
@@ -63,6 +64,7 @@ export default function ReadingInsightsPage({
         name: fileData.file.name,
         url: fileData.file.url,
         key: fileData.file.key,
+        fileType: fileData.file.fileType,
       });
 
       // Fetch reading insights

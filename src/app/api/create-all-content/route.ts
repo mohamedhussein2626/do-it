@@ -495,15 +495,24 @@ Create a well-structured transcript now:`;
       console.log(`📊 Quiz response: ${quizResponse.choices[0]?.message?.content?.length || 0} chars`);
       console.log(`📊 Flashcards response: ${flashcardsResponse.choices[0]?.message?.content?.length || 0} chars`);
       console.log(`📊 Transcript response: ${transcriptResponse.choices[0]?.message?.content?.length || 0} chars`);
-    } catch (aiError: any) {
+    } catch (aiError: unknown) {
       console.error("❌ Error calling OpenAI API:", aiError);
       console.error("❌ AI error details:", aiError instanceof Error ? aiError.message : String(aiError));
       if (aiError instanceof Error && aiError.stack) {
         console.error("❌ AI error stack:", aiError.stack);
       }
       
+      // Type guard for error objects with status/code
+      interface ErrorWithStatus {
+        status?: number;
+        code?: number;
+        message?: string;
+      }
+      
       // Handle 402 Payment Required (insufficient credits) specifically
-      if (aiError?.status === 402 || aiError?.code === 402 || (aiError instanceof Error && aiError.message.includes("402"))) {
+      const errorWithStatus = aiError as ErrorWithStatus;
+      const isError = aiError instanceof Error;
+      if (errorWithStatus?.status === 402 || errorWithStatus?.code === 402 || (isError && aiError.message.includes("402"))) {
         return NextResponse.json(
           {
             error: "Insufficient API credits. Please add credits to your OpenAI account to continue.",
