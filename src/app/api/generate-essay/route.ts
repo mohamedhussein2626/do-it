@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if OpenAI API key is configured
+    // Check if API key is configured
     if (!process.env.OPENAI_API_KEY) {
-      console.error("OpenAI API key not configured");
+      console.error("API key not configured");
       return NextResponse.json(
         { error: "AI service not configured. Please contact support." },
         { status: 500 }
@@ -178,7 +178,7 @@ Generate a comprehensive essay that addresses the prompt thoroughly and professi
     }
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // OpenAI model
       messages: [
         {
           role: "system",

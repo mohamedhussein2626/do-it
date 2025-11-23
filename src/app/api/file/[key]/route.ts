@@ -36,17 +36,36 @@ export async function GET(
     }
 
     // Verify the file belongs to the user
-    const file = await db.file.findFirst({
-      where: {
-        key: decodedKey,
-        userId: session.user.id,
-      },
-      select: {
-        id: true,
-        fileType: true,
-        key: true,
-      },
-    });
+    let file;
+    try {
+      file = await db.file.findFirst({
+        where: {
+          key: decodedKey,
+          userId: session.user.id,
+        },
+        select: {
+          id: true,
+          fileType: true,
+          key: true,
+        },
+      });
+    } catch (dbError: unknown) {
+      console.error("Database error:", dbError);
+      const error = dbError as { code?: string; message?: string };
+      
+      if (error.code === 'P1001') {
+        return NextResponse.json(
+          { 
+            error: "Database connection failed",
+            message: "Cannot reach database server. Your Neon database might be paused. Please check your Neon dashboard and ensure the database is active.",
+            details: "Neon databases auto-pause after inactivity. Visit your Neon dashboard to wake it up."
+          },
+          { status: 503 } // Service Unavailable
+        );
+      }
+      
+      throw dbError; // Re-throw other errors
+    }
 
     if (!file) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });

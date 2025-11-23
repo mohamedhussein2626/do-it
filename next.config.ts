@@ -6,6 +6,15 @@ const nextConfig: NextConfig = {
     config.resolve.alias.canvas = false;
     config.resolve.alias.encoding = false;
     
+    // Handle PDF.js worker for client-side rendering
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        canvas: false,
+        encoding: false,
+      };
+    }
+    
     // Ensure pdf-parse and its dependencies work properly
     if (isServer) {
       config.externals = config.externals || [];

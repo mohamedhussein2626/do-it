@@ -14,12 +14,15 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
+  BarChart3,
+  Search,
+  BookOpen,
 } from "lucide-react";
 import { getQuiz, getFlashcards, getTranscript } from "@/lib/actions";
 
 interface QuickNavTabsProps {
   fileId: string;
-  currentPage: "chatbot" | "podcast" | "flashcards" | "quiz" | "transcript";
+  currentPage: "chatbot" | "podcast" | "flashcards" | "quiz" | "transcript" | "reading-insights" | "keyword-finder" | "bookmarks";
 }
 
 interface GenerationStatus {
@@ -77,6 +80,30 @@ const QuickNavTabs: React.FC<QuickNavTabsProps> = ({ fileId, currentPage }) => {
       path: `/dashboard/${fileId}/transcript`,
       description: "View document in text format",
       isGeneration: true,
+    },
+    {
+      id: "reading-insights",
+      icon: BarChart3,
+      label: "Reading Insights",
+      path: `/dashboard/${fileId}/reading-insights`,
+      description: "Analyze document statistics",
+      isGeneration: false,
+    },
+    {
+      id: "keyword-finder",
+      icon: Search,
+      label: "Keyword Finder",
+      path: `/dashboard/${fileId}/keyword-finder`,
+      description: "Find most frequent keywords",
+      isGeneration: false,
+    },
+    {
+      id: "bookmarks",
+      icon: BookOpen,
+      label: "Bookmarks",
+      path: `/dashboard/${fileId}/bookmarks`,
+      description: "Auto-generated table of contents",
+      isGeneration: false,
     },
   ];
 

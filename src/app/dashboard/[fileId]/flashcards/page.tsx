@@ -34,6 +34,7 @@ export default function FlashcardsPage({ params }: FlashcardsPageProps) {
   const [file, setFile] = useState<FileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [waitingForGeneration, setWaitingForGeneration] = useState(true);
 
   useEffect(() => {
     const resolveParams = async () => {
@@ -49,13 +50,19 @@ export default function FlashcardsPage({ params }: FlashcardsPageProps) {
   useEffect(() => {
     if (!flashcards && !loading && fileId && !generating) {
       console.log("Flashcards not found, setting up auto-refresh...");
+      
+      // After 15 seconds, stop showing loading and show generate button
+      const timeout = setTimeout(() => {
+        setWaitingForGeneration(false);
+      }, 15000);
+      
       const interval = setInterval(async () => {
         console.log("Auto-refreshing flashcards data...");
         await fetchFlashcardsAndFile(fileId);
       }, 3000); // Check every 3 seconds
 
       // Stop polling after 60 seconds
-      const timeout = setTimeout(() => {
+      const stopTimeout = setTimeout(() => {
         clearInterval(interval);
         console.log("Stopped auto-refresh after 60 seconds");
       }, 60000);
@@ -63,6 +70,7 @@ export default function FlashcardsPage({ params }: FlashcardsPageProps) {
       return () => {
         clearInterval(interval);
         clearTimeout(timeout);
+        clearTimeout(stopTimeout);
       };
     }
   }, [flashcards, loading, fileId, generating]);
@@ -81,6 +89,9 @@ export default function FlashcardsPage({ params }: FlashcardsPageProps) {
         setFlashcards(null);
       } else {
         setFlashcards(flashcardsData.flashcards || null);
+        if (flashcardsData.flashcards) {
+          setWaitingForGeneration(false);
+        }
       }
 
       if (!fileData.file) {
@@ -141,6 +152,18 @@ export default function FlashcardsPage({ params }: FlashcardsPageProps) {
   }
 
   if (!flashcards) {
+    if (waitingForGeneration) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-600" />
+            <p className="text-gray-600">Generating flashcards...</p>
+            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

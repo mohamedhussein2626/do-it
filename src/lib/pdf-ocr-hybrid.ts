@@ -8,6 +8,10 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  defaultHeaders: {
+    "HTTP-Referer": process.env.BASE_URL || "http://localhost:3000",
+    "X-Title": "NotebookLama",
+  },
 });
 
 // Type definitions for pdf-parse v2.4.3
@@ -356,32 +360,38 @@ async function extractTextFromImages(
       
       console.log(`Processing page ${pageNum}, image ${i + 1}/${images.length}...`);
       
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        max_tokens: 2048,
-        temperature: 0,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Extract all visible text from this image including labels, annotations, chart data, diagram text, and any other readable content. If no text is visible, respond with 'NO_TEXT_FOUND'."
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/png;base64,${base64Image}`,
-                detail: "high"
+      // Note: gpt-4o-mini supports vision, so image extraction should work
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini", // OpenAI model
+          max_tokens: 2048,
+          temperature: 0,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Extract all visible text from this image including labels, annotations, chart data, diagram text, and any other readable content. If no text is visible, respond with 'NO_TEXT_FOUND'."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${base64Image}`,
+                  detail: "high"
+                }
               }
-            }
-          ]
-        }]
-      });
-      
-      const text = response.choices[0]?.message?.content || "";
-      
-      if (text && text.trim() !== "NO_TEXT_FOUND") {
-        results.push(text);
+            ]
+          }]
+        });
+        
+        const text = response.choices[0]?.message?.content || "";
+        
+        if (text && text.trim() !== "NO_TEXT_FOUND") {
+          results.push(text);
+        }
+      } catch (visionError) {
+        // DeepSeek doesn't support vision - skip this image and continue with text extraction
+        console.log(`Skipping vision extraction for image ${i + 1} (DeepSeek doesn't support vision)`);
       }
     } catch (error) {
       console.error(`Error processing image ${i + 1} on page ${pageNum}:`, error);

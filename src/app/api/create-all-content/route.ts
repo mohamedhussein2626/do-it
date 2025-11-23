@@ -12,8 +12,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for PDF processing
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // use your OpenAI key here
-  // No need to set baseURL – default points to OpenAI
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function POST(req: NextRequest) {
@@ -436,74 +435,100 @@ Create a well-structured transcript now:`;
     
     let quizResponse, flashcardsResponse, transcriptResponse;
     try {
-      [quizResponse, flashcardsResponse, transcriptResponse] =
-      await Promise.all([
-        // Quiz generation
-        openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0.1,
-          max_tokens: 3000,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a professional quiz creator. You must create questions that are SPECIFIC to the provided content. Use exact facts, names, dates, and details from the text. Never create generic questions. Always respond with valid JSON only. If you cannot create specific questions from the content, respond with an empty array [].",
-            },
-            {
-              role: "user",
-              content: quizPrompt,
-            },
-          ],
-        }),
-        // Flashcards generation
-        openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0.1,
-          max_tokens: 3500,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a professional flashcard creator. You must create flashcards that are SPECIFIC to the provided content. Use exact facts, names, dates, and details from the text. Never create generic flashcards. Always respond with valid JSON only. If you cannot create specific flashcards from the content, respond with an empty array [].",
-            },
-            {
-              role: "user",
-              content: flashcardsPrompt,
-            },
-          ],
-        }),
-        // Transcript generation
-        openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0.1,
-          max_tokens: 4000,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a professional transcript creator. You must preserve ALL information from the provided content while improving formatting and readability. Never add or remove important facts. If you cannot create a proper transcript from the content, respond with 'Unable to generate transcript from provided content.'",
-            },
-            {
-              role: "user",
-              content: transcriptPrompt,
-            },
-          ],
-        }),
-      ]);
+      // Reduced max_tokens to fit within available credits (1332 tokens available)
+      // Making requests sequential to avoid exceeding credit limits
+      console.log("🔄 Generating quiz...");
+      quizResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini", // OpenAI model
+        temperature: 0.1,
+        max_tokens: 1000, // Reduced from 3000 to fit within credits
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional quiz creator. You must create questions that are SPECIFIC to the provided content. Use exact facts, names, dates, and details from the text. Never create generic questions. Always respond with valid JSON only. If you cannot create specific questions from the content, respond with an empty array [].",
+          },
+          {
+            role: "user",
+            content: quizPrompt,
+          },
+        ],
+      });
+      
+      console.log("🔄 Generating flashcards...");
+      flashcardsResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini", // OpenAI model
+        temperature: 0.1,
+        max_tokens: 1200, // Reduced from 3500 to fit within credits
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional flashcard creator. You must create flashcards that are SPECIFIC to the provided content. Use exact facts, names, dates, and details from the text. Never create generic flashcards. Always respond with valid JSON only. If you cannot create specific flashcards from the content, respond with an empty array [].",
+          },
+          {
+            role: "user",
+            content: flashcardsPrompt,
+          },
+        ],
+      });
+      
+      console.log("🔄 Generating transcript...");
+      transcriptResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini", // OpenAI model
+        temperature: 0.1,
+        max_tokens: 1500, // Reduced from 4000 to fit within credits
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional transcript creator. You must preserve ALL information from the provided content while improving formatting and readability. Never add or remove important facts. If you cannot create a proper transcript from the content, respond with 'Unable to generate transcript from provided content.'",
+          },
+          {
+            role: "user",
+            content: transcriptPrompt,
+          },
+        ],
+      });
       
       console.log("✅ AI content generation completed");
       console.log(`📊 Quiz response: ${quizResponse.choices[0]?.message?.content?.length || 0} chars`);
       console.log(`📊 Flashcards response: ${flashcardsResponse.choices[0]?.message?.content?.length || 0} chars`);
       console.log(`📊 Transcript response: ${transcriptResponse.choices[0]?.message?.content?.length || 0} chars`);
-    } catch (aiError) {
+    } catch (aiError: any) {
       console.error("❌ Error calling OpenAI API:", aiError);
       console.error("❌ AI error details:", aiError instanceof Error ? aiError.message : String(aiError));
       if (aiError instanceof Error && aiError.stack) {
         console.error("❌ AI error stack:", aiError.stack);
       }
+      
+      // Handle 402 Payment Required (insufficient credits) specifically
+      if (aiError?.status === 402 || aiError?.code === 402 || (aiError instanceof Error && aiError.message.includes("402"))) {
+        return NextResponse.json(
+          {
+            error: "Insufficient API credits. Please add credits to your OpenAI account to continue.",
+            details: aiError instanceof Error ? aiError.message : "Your OpenAI account has insufficient credits for this request.",
+            suggestion: "Please add credits to your OpenAI account to continue using this service.",
+          },
+          { status: 402 },
+        );
+      }
+      
+      // Handle other API errors
+      let errorMessage = "Failed to generate content using AI. Please check your API key and try again.";
+      if (aiError instanceof Error) {
+        if (aiError.message.includes("401") || aiError.message.includes("Unauthorized")) {
+          errorMessage = "Invalid API key. Please check your OpenAI API key configuration.";
+        } else if (aiError.message.includes("429") || aiError.message.includes("rate limit")) {
+          errorMessage = "Rate limit exceeded. Please try again in a few moments.";
+        } else if (aiError.message.includes("timeout")) {
+          errorMessage = "Request timed out. Please try again.";
+        }
+      }
+      
       return NextResponse.json(
         {
-          error: "Failed to generate content using AI. Please check your API key and try again.",
+          error: errorMessage,
           details: aiError instanceof Error ? aiError.message : "Unknown error",
         },
         { status: 500 },
@@ -818,22 +843,52 @@ Create a well-structured transcript now:`;
     
     // Provide more helpful error message
     let errorMessage = "Failed to create content";
+    let errorDetails = "Unknown error occurred";
+    
     if (error instanceof Error) {
+      errorDetails = error.message || "Unknown error";
       if (error.message.includes("OpenAI") || error.message.includes("API")) {
         errorMessage = "Failed to generate content using AI. Please check your API key and try again.";
       } else if (error.message.includes("database") || error.message.includes("Prisma")) {
         errorMessage = "Failed to save content to database. Please try again.";
+      } else if (error.message.includes("timeout") || error.message.includes("Timeout")) {
+        errorMessage = "Request timed out. Please try again.";
       } else {
-        errorMessage = `Failed to create content: ${error.message}`;
+        errorMessage = `Failed to create content: ${error.message.substring(0, 100)}`;
       }
+    } else {
+      errorDetails = String(error);
     }
     
-    return NextResponse.json(
-      { 
-        error: errorMessage,
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 },
-    );
+    // Always return proper JSON response
+    try {
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          details: errorDetails
+        },
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        },
+      );
+    } catch (jsonError) {
+      // Fallback if JSON serialization fails
+      console.error("❌ Failed to serialize error response:", jsonError);
+      return new NextResponse(
+        JSON.stringify({ 
+          error: "Internal server error",
+          details: "An unexpected error occurred"
+        }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+    }
   }
 }

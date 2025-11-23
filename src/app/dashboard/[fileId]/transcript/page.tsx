@@ -23,6 +23,7 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waitingForGeneration, setWaitingForGeneration] = useState(true);
 
   useEffect(() => {
     const resolveParams = async () => {
@@ -38,13 +39,19 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
   useEffect(() => {
     if (!transcript && !loading && fileId && !generating) {
       console.log("Transcript not found, setting up auto-refresh...");
+      
+      // After 15 seconds, stop showing loading and show generate button
+      const timeout = setTimeout(() => {
+        setWaitingForGeneration(false);
+      }, 15000);
+      
       const interval = setInterval(async () => {
         console.log("Auto-refreshing transcript data...");
         await fetchTranscriptAndFile(fileId);
       }, 3000); // Check every 3 seconds
 
       // Stop polling after 60 seconds
-      const timeout = setTimeout(() => {
+      const stopTimeout = setTimeout(() => {
         clearInterval(interval);
         console.log("Stopped auto-refresh after 60 seconds");
       }, 60000);
@@ -52,6 +59,7 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
       return () => {
         clearInterval(interval);
         clearTimeout(timeout);
+        clearTimeout(stopTimeout);
       };
     }
   }, [transcript, loading, fileId, generating]);
@@ -68,10 +76,16 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
       ]);
 
       if (transcriptData.error) {
-        setError(transcriptData.error);
+        // Only set error if it's not "Transcript not found" (that's expected when generating)
+        if (transcriptData.error !== "Transcript not found") {
+          setError(transcriptData.error);
+        }
         setTranscript(null);
       } else {
         setTranscript(transcriptData.transcript?.content || null);
+        if (transcriptData.transcript?.content) {
+          setWaitingForGeneration(false);
+        }
       }
 
       if (!fileData.file) {
@@ -138,7 +152,8 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
     );
   }
 
-  if (error) {
+  // Show error only for real errors (not "not found" during generation)
+  if (error && error !== "Transcript not found") {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -156,7 +171,20 @@ export default function TranscriptPage({ params }: TranscriptPageProps) {
     );
   }
 
+  // Show loading state if waiting for generation, otherwise show generate button
   if (!transcript) {
+    if (waitingForGeneration) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-600" />
+            <p className="text-gray-600">Generating transcript...</p>
+            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

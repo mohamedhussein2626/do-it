@@ -1,13 +1,12 @@
 "use client";
 import React, { useState } from "react";
 import PDFSidebar from "@/components/layout/PDFSidebar";
-import PdfRenderer from "@/components/PdfRenderer";
+import FileViewer from "@/components/FileViewer";
 import ChatWrapper from "@/components/chat/ChatWrapper";
 import QuickNavTabs from "@/components/dashboard/QuickNavTabs";
 import { Loader2 } from "lucide-react";
 import type { File } from "@prisma/client";
 import BannedUserProtection from "@/components/BannedUserProtection";
-import { getAbsoluteFileUrl } from "@/lib/file-url-utils";
 
 export default function PDFPageWithSidebar({ file }: { file: File }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -38,10 +37,10 @@ export default function PDFPageWithSidebar({ file }: { file: File }) {
 
         {/* Content area */}
         <div className="flex-1 flex">
-          {/* PDF Viewer - Takes up more space */}
+          {/* File Viewer - Takes up more space */}
           <div className="flex-1 flex flex-col">
             <div className="flex-1 p-6">
-              <PdfRenderer url={getAbsoluteFileUrl(file.url, file.key)} />
+              <FileViewer file={file} />
             </div>
           </div>
 

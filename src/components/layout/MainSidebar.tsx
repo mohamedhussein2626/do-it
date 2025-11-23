@@ -71,7 +71,7 @@ const MainSidebar: React.FC<MainSidebarProps> = ({ sidebarOpen, onToggleSidebar 
       <div className="flex-shrink-0 p-4 border-b border-gray-100">
         <div className="flex items-center justify-between gap-2">
           <Link
-            href="/dashboard"
+            href="/"
             className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition-opacity flex-1 min-w-0"
           >
             <Image

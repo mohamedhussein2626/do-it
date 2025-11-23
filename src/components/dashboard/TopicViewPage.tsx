@@ -1,13 +1,12 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import PDFSidebar from "@/components/layout/PDFSidebar";
-import PdfRenderer from "@/components/PdfRenderer";
+import FileViewer from "@/components/FileViewer";
 import ChatWrapper from "@/components/chat/ChatWrapper";
 import QuickNavTabs from "@/components/dashboard/QuickNavTabs";
 import { Loader2, FileText, ChevronRight } from "lucide-react";
 import type { File } from "@prisma/client";
 import BannedUserProtection from "@/components/BannedUserProtection";
-import { getAbsoluteFileUrl } from "@/lib/file-url-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -218,28 +217,57 @@ export default function TopicViewPage({ topic, files }: TopicViewPageProps) {
                   onClick={async () => {
                     console.log("🚀 Generate All Services clicked for fileId:", selectedFileId, "fileName:", currentFile.name);
                     setLoading(true);
-                    setLoadingMessage(`Generating all content for ${currentFile.name}...`);
+                    
+                    const apis = [
+                      { name: "Quiz", endpoint: "/api/create-quiz" },
+                      { name: "Flashcards", endpoint: "/api/create-flashcards" },
+                      { name: "Transcript", endpoint: "/api/create-transcript" },
+                      { name: "Podcast", endpoint: "/api/create-podcast" },
+                    ];
+                    
+                    let successCount = 0;
+                    let errorCount = 0;
+                    
                     try {
-                      console.log("📤 Calling create-all-content API with fileId:", selectedFileId);
-                      const response = await fetch("/api/create-all-content", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ fileId: selectedFileId }),
-                      });
-                      console.log("✅ API response status:", response.status);
-                      if (response.ok) {
-                        const data = await response.json();
-                        console.log("✅ Content generated successfully:", data);
-                        setLoadingMessage("Content generated successfully!");
-                        setTimeout(() => {
-                          setLoading(false);
-                          setLoadingMessage("");
-                        }, 2000);
-                      } else {
-                        const errorData = await response.json().catch(() => ({}));
-                        console.error("❌ API error:", errorData);
-                        throw new Error(errorData.error || "Failed to generate content");
+                      // Call each API sequentially to avoid consuming all credits at once
+                      for (const api of apis) {
+                        setLoadingMessage(`Generating ${api.name} for ${currentFile.name}...`);
+                        console.log(`📤 Calling ${api.endpoint} API with fileId:`, selectedFileId);
+                        
+                        try {
+                          const response = await fetch(api.endpoint, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ fileId: selectedFileId }),
+                          });
+                          
+                          if (response.ok) {
+                            console.log(`✅ ${api.name} generated successfully`);
+                            successCount++;
+                          } else {
+                            const errorData = await response.json().catch(() => ({}));
+                            console.warn(`⚠️ ${api.name} generation failed:`, errorData.error || "Unknown error");
+                            errorCount++;
+                          }
+                        } catch (err) {
+                          console.error(`❌ Error generating ${api.name}:`, err);
+                          errorCount++;
+                        }
+                        
+                        // Small delay between requests to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 500));
                       }
+                      
+                      if (successCount > 0) {
+                        setLoadingMessage(`Generated ${successCount} service(s) successfully${errorCount > 0 ? `, ${errorCount} failed` : ""}!`);
+                      } else {
+                        setLoadingMessage("Failed to generate content. Please try individual services.");
+                      }
+                      
+                      setTimeout(() => {
+                        setLoading(false);
+                        setLoadingMessage("");
+                      }, 3000);
                     } catch (error) {
                       console.error("❌ Error generating content:", error);
                       setLoading(false);
@@ -267,10 +295,10 @@ export default function TopicViewPage({ topic, files }: TopicViewPageProps) {
           {/* Content area */}
           {currentFile ? (
             <div className="flex-1 flex">
-              {/* PDF Viewer */}
+              {/* File Viewer */}
               <div className="flex-1 flex flex-col">
                 <div className="flex-1 p-6">
-                  <PdfRenderer url={getAbsoluteFileUrl(currentFile.url, currentFile.key)} />
+                  <FileViewer file={currentFile} />
                 </div>
               </div>
 

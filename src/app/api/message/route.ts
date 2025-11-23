@@ -6,8 +6,7 @@ import { OpenAIStream, StreamingTextResponse } from "ai";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // use your OpenAI key here
-  // No need to set baseURL – default points to OpenAI
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export const POST = async (req: NextRequest) => {
@@ -52,8 +51,7 @@ export const POST = async (req: NextRequest) => {
     });
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4", // Use GPT-4 here
-
+      model: "gpt-4o-mini", // OpenAI model
       temperature: 0.7,
       max_tokens: 1024,
       stream: true,

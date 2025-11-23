@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogTrigger } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Expand, Loader2 } from "lucide-react";
 import SimpleBar from "simplebar-react";
-import { Document, Page } from "react-pdf";
+import { Document, Page, pdfjs } from "react-pdf";
 import { useResizeDetector } from "react-resize-detector";
 import { toast } from "sonner";
+
 interface PdfFullscreenProps {
   fileUrl: string;
 }
@@ -17,6 +18,13 @@ const PdfFullscreen = ({ fileUrl }: PdfFullscreenProps) => {
   const [numPages, setNumPages] = useState<number>();
 
   const { width, ref } = useResizeDetector();
+
+  // Ensure worker is configured on client side
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+    }
+  }, []);
 
   return (
     <Dialog

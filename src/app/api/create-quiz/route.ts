@@ -12,8 +12,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for PDF processing
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // use your OpenAI key here
-  // No need to set baseURL – default points to OpenAI
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Add at the top, after imports
@@ -197,10 +196,9 @@ Generate the quiz now:`;
 
       try {
         const response = await openai.chat.completions.create({
-          model: "gpt-4", // Use GPT-4 here
-
+          model: "gpt-4o-mini", // OpenAI model
           temperature: 0.1,
-          max_tokens: 3000, // Increased tokens
+          max_tokens: 1000, // Reduced to fit within available credits
           messages: [
             {
               role: "system",
@@ -391,9 +389,76 @@ Generate the quiz now:`;
   } catch (error: unknown) {
     console.error("=== API ERROR ===");
     console.error("API error:", error);
-    return NextResponse.json(
-      { error: "Failed to create quiz" },
-      { status: 500 },
-    );
+    
+    let errorMessage = "Failed to create quiz";
+    let errorDetails = "Unknown error occurred";
+    
+    if (error instanceof Error) {
+      errorDetails = error.message || "Unknown error";
+      // Handle 402 Payment Required (insufficient credits)
+      if (error.message.includes("402") || (error as any)?.status === 402 || (error as any)?.code === 402) {
+        errorMessage = "Insufficient API credits. Please add credits to your OpenAI account to continue.";
+        errorDetails = error.message || "Your OpenAI account has insufficient credits.";
+        return NextResponse.json(
+          {
+            error: errorMessage,
+            details: errorDetails,
+            suggestion: "Please add credits to your OpenAI account to continue using this service.",
+          },
+          { status: 402 },
+        );
+      } else if (error.message.includes("API") || error.message.includes("OpenAI")) {
+        errorMessage = "Failed to generate quiz using AI. Please check your API key and try again.";
+      } else if (error.message.includes("database") || error.message.includes("Prisma")) {
+        errorMessage = "Failed to save quiz to database. Please try again.";
+      } else if (error.message.includes("timeout") || error.message.includes("Timeout")) {
+        errorMessage = "Request timed out. Please try again.";
+      } else {
+        errorMessage = `Failed to create quiz: ${error.message.substring(0, 100)}`;
+      }
+    } else {
+      errorDetails = String(error);
+      // Check for 402 in non-Error objects
+      if ((error as any)?.status === 402 || (error as any)?.code === 402) {
+        return NextResponse.json(
+          {
+            error: "Insufficient API credits. Please add credits to your OpenAI account to continue.",
+            details: "Your OpenAI account has insufficient credits.",
+            suggestion: "Please add credits to your OpenAI account to continue using this service.",
+          },
+          { status: 402 },
+        );
+      }
+    }
+    
+    // Always return proper JSON response
+    try {
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          details: errorDetails
+        },
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        },
+      );
+    } catch (jsonError) {
+      console.error("Failed to serialize error response:", jsonError);
+      return new NextResponse(
+        JSON.stringify({ 
+          error: "Internal server error",
+          details: "An unexpected error occurred"
+        }),
+        { 
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+    }
   }
 }

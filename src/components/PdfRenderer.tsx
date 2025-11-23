@@ -31,7 +31,7 @@ import {
 
 import SimpleBar from "simplebar-react";
 import PdfFullscreen from "./PdfFullscreen";
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
+import { useEffect } from "react";
 
 interface PdfRendererProps {
   url: string;
@@ -45,6 +45,13 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
   const [renderedScale, setRenderedScale] = useState<number | null>(null);
 
   const isLoading = renderedScale !== scale;
+
+  // Ensure worker is configured on client side
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+    }
+  }, []);
 
   const CustomPageValidator = z.object({
     page: z

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import ChatWrapper from "@/components/chat/ChatWrapper";
-import PdfRenderer from "@/components/PdfRenderer";
+import FileViewer from "@/components/FileViewer";
 import PDFSidebar from "@/components/layout/PDFSidebar";
 import { getFileData } from "@/lib/actions";
 import BannedUserProtection from "@/components/BannedUserProtection";
@@ -10,7 +10,9 @@ import BannedUserProtection from "@/components/BannedUserProtection";
 interface FileData {
   id: string;
   url: string;
-  // add other properties as needed
+  key: string | null;
+  fileType: string | null;
+  name: string;
 }
 
 interface ChatbotPageProps {
@@ -88,10 +90,10 @@ export default function ChatbotPage({ params }: ChatbotPageProps) {
 
       {/* Main content area - Full width */}
       <div className="flex-1 flex ml-64">
-        {/* PDF Viewer - Takes up more space */}
+        {/* File Viewer - Takes up more space */}
         <div className="flex-1 flex flex-col">
           <div className="flex-1 p-6">
-            <PdfRenderer url={file.url} />
+            <FileViewer file={file} />
           </div>
         </div>
 

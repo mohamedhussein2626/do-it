@@ -21,7 +21,9 @@ import {
   Cloud,
   CheckSquare,
   Library,
-  
+  BarChart3,
+  Search,
+  Wrench,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import Image from "next/image";
@@ -838,6 +840,209 @@ export default async function Home() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* PDF Analysis Tools Section */}
+      <div className="py-24 bg-gradient-to-br from-gray-50 to-blue-50">
+        <MaxWidthWrapper>
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100 rounded-full mb-4">
+              <Wrench className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-semibold text-blue-600">New Tools</span>
+            </div>
+            <h2 className="text-4xl font-bold sm:text-5xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-4">
+              Smart PDF Analysis Tools
+            </h2>
+            <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+              Analyze your documents instantly with our powerful local-only tools. 
+              Get insights, find keywords, and navigate your PDFs like never before - all processed 100% offline.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+            {/* Reading Insights */}
+            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl">
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+                <BarChart3 className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                Reading Insights
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Get comprehensive statistics about your document including word count, reading time, and page analysis.
+              </p>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Total word & character count</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Estimated reading time</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Average words per page</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">100% local processing</span>
+                </div>
+              </div>
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-500">Processing</span>
+                  <span className="text-sm font-semibold text-green-600">Instant</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Keyword Finder */}
+            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl">
+              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+                <Search className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                Keyword Finder
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Discover the most important terms in your document with intelligent frequency analysis and stopword filtering.
+              </p>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Top 20 most frequent words</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Smart stopword removal</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Visual bar chart display</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">English & Arabic support</span>
+                </div>
+              </div>
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-500">Processing</span>
+                  <span className="text-sm font-semibold text-green-600">Instant</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Auto Bookmarks */}
+            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl">
+              <div className="w-16 h-16 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+                <BookOpen className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                Auto Bookmarks
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Automatically generate a table of contents by extracting headings and key sections from each page.
+              </p>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Page-by-page analysis</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Smart heading detection</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Clickable navigation</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                  <span className="text-sm text-gray-700">Instant generation</span>
+                </div>
+              </div>
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-500">Processing</span>
+                  <span className="text-sm font-semibold text-green-600">Instant</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Feature Highlight */}
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-2xl p-8 md:p-12 text-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 rounded-full mb-4">
+                  <Shield className="w-4 h-4" />
+                  <span className="text-sm font-semibold">100% Local & Private</span>
+                </div>
+                <h3 className="text-3xl font-bold mb-4">
+                  Your Data Stays Private
+                </h3>
+                <p className="text-blue-100 mb-6 text-lg">
+                  All three tools process your PDFs completely offline. No data is sent to external APIs, 
+                  ensuring your documents remain secure and private.
+                </p>
+                <ul className="space-y-3">
+                  <li className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-300 flex-shrink-0" />
+                    <span>No external API calls</span>
+                  </li>
+                  <li className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-300 flex-shrink-0" />
+                    <span>Instant processing</span>
+                  </li>
+                  <li className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-300 flex-shrink-0" />
+                    <span>Works offline</span>
+                  </li>
+                  <li className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-300 flex-shrink-0" />
+                    <span>Zero data sharing</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="bg-white/10 rounded-xl p-6 backdrop-blur-sm">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-white/10 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <BarChart3 className="h-5 w-5" />
+                      <span className="font-medium">Reading Insights</span>
+                    </div>
+                    <span className="text-green-300 font-semibold">Ready</span>
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-white/10 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <Search className="h-5 w-5" />
+                      <span className="font-medium">Keyword Finder</span>
+                    </div>
+                    <span className="text-green-300 font-semibold">Ready</span>
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-white/10 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <BookOpen className="h-5 w-5" />
+                      <span className="font-medium">Auto Bookmarks</span>
+                    </div>
+                    <span className="text-green-300 font-semibold">Ready</span>
+                  </div>
+                </div>
+                <div className="mt-6 pt-6 border-t border-white/20">
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center justify-center w-full px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg"
+                  >
+                    Try All Tools Now
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </MaxWidthWrapper>
       </div>
 
       {/* New Features Showcase */}

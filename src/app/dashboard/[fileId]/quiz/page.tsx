@@ -34,6 +34,7 @@ export default function QuizPage({ params }: QuizPageProps) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waitingForGeneration, setWaitingForGeneration] = useState(true);
 
   useEffect(() => {
     const resolveParams = async () => {
@@ -49,13 +50,19 @@ export default function QuizPage({ params }: QuizPageProps) {
   useEffect(() => {
     if (!quiz && !loading && fileId && !generating) {
       console.log("Quiz not found, setting up auto-refresh...");
+      
+      // After 15 seconds, stop showing loading and show generate button
+      const timeout = setTimeout(() => {
+        setWaitingForGeneration(false);
+      }, 15000);
+      
       const interval = setInterval(async () => {
         console.log("Auto-refreshing quiz data...");
         await fetchQuizAndFile(fileId);
       }, 3000); // Check every 3 seconds
 
       // Stop polling after 60 seconds
-      const timeout = setTimeout(() => {
+      const stopTimeout = setTimeout(() => {
         clearInterval(interval);
         console.log("Stopped auto-refresh after 60 seconds");
       }, 60000);
@@ -63,6 +70,7 @@ export default function QuizPage({ params }: QuizPageProps) {
       return () => {
         clearInterval(interval);
         clearTimeout(timeout);
+        clearTimeout(stopTimeout);
       };
     }
   }, [quiz, loading, fileId, generating]);
@@ -87,10 +95,16 @@ export default function QuizPage({ params }: QuizPageProps) {
       }
 
       if (quizData.error) {
-        setError(quizData.error);
+        // Only set error if it's not "Quiz not found" (that's expected when generating)
+        if (quizData.error !== "Quiz not found") {
+          setError(quizData.error);
+        }
         setQuiz(null);
       } else {
         setQuiz(quizData.quiz || null);
+        if (quizData.quiz) {
+          setWaitingForGeneration(false);
+        }
       }
 
       if (!fileData.file) {
@@ -169,7 +183,8 @@ export default function QuizPage({ params }: QuizPageProps) {
     );
   }
 
-  if (error) {
+  // Show error only for real errors (not "not found" during generation)
+  if (error && error !== "Quiz not found") {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -187,7 +202,20 @@ export default function QuizPage({ params }: QuizPageProps) {
     );
   }
 
+  // Show loading state if waiting for generation, otherwise show generate button
   if (!quiz) {
+    if (waitingForGeneration) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-600" />
+            <p className="text-gray-600">Generating quiz...</p>
+            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

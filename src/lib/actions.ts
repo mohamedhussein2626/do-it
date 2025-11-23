@@ -67,6 +67,8 @@ export async function getFileData(fileId: string) {
         id: true,
         name: true,
         url: true,
+        key: true,
+        fileType: true,
       },
     });
 
