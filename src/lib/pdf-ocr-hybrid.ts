@@ -92,23 +92,20 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
     
     // Try using pdfjs-dist first for accurate page count
     try {
-      // Try legacy build first (no worker needed)
-      let pdfjs;
-      try {
-        pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
-      } catch {
-        // Fallback to regular build
-        pdfjs = await import('pdfjs-dist');
-      }
+      // Always use legacy build (no worker needed, works in serverless)
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
       
+      // Disable workers completely for server-side
       configurePdfjsWorker(pdfjs, "pdfjs-dist(metadata)");
       
       const uint8Array = new Uint8Array(pdfBuffer);
       
-      // Load PDF document
+      // Load PDF document with worker disabled
       const loadingTask = pdfjs.getDocument({ 
         data: uint8Array,
         verbosity: 0,
+        useWorkerFetch: false,
+        useSystemFonts: false,
       });
       
       const pdfDoc = await loadingTask.promise;
@@ -328,15 +325,10 @@ async function extractTextByPage(
     // Try using pdfjs-dist first for per-page extraction
     // Use legacy build which works better server-side
     try {
-      // Try legacy build first (no worker needed)
-      let pdfjs;
-      try {
-        pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
-      } catch {
-        // Fallback to regular build
-        pdfjs = await import('pdfjs-dist');
-      }
+      // Always use legacy build (no worker needed, works in serverless)
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
       
+      // Disable workers completely for server-side
       configurePdfjsWorker(pdfjs, "pdfjs-dist(per-page)");
       
       // Check cache for pdfjs document
@@ -347,10 +339,12 @@ async function extractTextByPage(
         // Convert Buffer to Uint8Array (pdfjs-dist requires Uint8Array)
         const uint8Array = new Uint8Array(pdfBuffer);
         
-        // Load the PDF document - legacy build doesn't need worker config
+        // Load the PDF document with worker disabled
         const loadingTask = pdfjs.getDocument({ 
           data: uint8Array,
           verbosity: 0, // Reduce logging
+          useWorkerFetch: false,
+          useSystemFonts: false,
         });
         pdfDoc = await loadingTask.promise;
         

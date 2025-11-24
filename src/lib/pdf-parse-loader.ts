@@ -115,7 +115,7 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
 
   // Ensure the worker path is configured before pdf-parse starts processing
   try {
-    configurePdfParseWorker(pdfParseModule);
+    await configurePdfParseWorker(pdfParseModule);
   } catch (error) {
     console.warn("⚠️ Failed to configure pdf-parse worker:", error);
   }

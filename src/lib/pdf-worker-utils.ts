@@ -38,35 +38,44 @@ export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") 
   registerGlobalWorker();
 
   const instance = pdfjsInstance as {
-    GlobalWorkerOptions?: { workerSrc?: string };
+    GlobalWorkerOptions?: { workerSrc?: string | null };
     disableWorker?: boolean;
   };
 
+  // Completely disable workers on server - use main thread only
   if (instance.GlobalWorkerOptions) {
-    if (instance.GlobalWorkerOptions.workerSrc !== WORKER_SRC_PLACEHOLDER) {
-      console.log(`[pdf-worker] Configuring ${context} worker placeholder`);
-      instance.GlobalWorkerOptions.workerSrc = WORKER_SRC_PLACEHOLDER;
-    }
-  }
-
-  if (instance.disableWorker !== true) {
-    instance.disableWorker = true;
+    // Set to empty string to disable worker completely
+    instance.GlobalWorkerOptions.workerSrc = "";
+    console.log(`[pdf-worker] Disabled ${context} worker (server-side main thread only)`);
   }
 }
 
-export function configurePdfParseWorker(pdfParseModule: unknown) {
+export async function configurePdfParseWorker(pdfParseModule: unknown) {
   if (!isServerEnvironment() || !pdfParseModule) {
     return;
   }
 
   registerGlobalWorker();
 
+  // First, ensure pdfjs-dist (used by pdf-parse) has workers disabled globally
+  // pdf-parse loads pdfjs-dist internally, so we configure it first
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+    if (pdfjs && pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+      console.log(`[pdf-worker] Disabled pdfjs-dist worker for pdf-parse`);
+    }
+  } catch (error) {
+    console.warn(`[pdf-worker] Could not configure pdfjs-dist for pdf-parse:`, error);
+  }
+
   const pdfParseClass = (pdfParseModule as { PDFParse?: { setWorker?: (src: string) => string | void } }).PDFParse;
 
   if (pdfParseClass && typeof pdfParseClass.setWorker === "function") {
-    const configuredSrc = pdfParseClass.setWorker(WORKER_SRC_PLACEHOLDER);
-    if (configuredSrc) {
-      console.log(`[pdf-worker] pdf-parse worker configured: ${configuredSrc}`);
+    // Set to empty string to disable worker completely (server-side main thread only)
+    const configuredSrc = pdfParseClass.setWorker("");
+    if (configuredSrc !== undefined) {
+      console.log(`[pdf-worker] pdf-parse worker disabled (server-side)`);
     }
   }
 }
