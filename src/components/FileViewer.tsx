@@ -6,6 +6,7 @@ import TextContentViewer from "@/components/TextContentViewer";
 import { FileText, Download } from "lucide-react";
 import { Button } from "./ui/button";
 import { getAbsoluteFileUrl } from "@/lib/file-url-utils";
+import Image from "next/image";
 
 interface FileViewerProps {
   file: {
@@ -51,11 +52,17 @@ const FileViewer: React.FC<FileViewerProps> = ({ file }) => {
     const fileUrl = getAbsoluteFileUrl(file.url, file.key);
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg p-4">
-        <img
-          src={fileUrl}
-          alt={file.name}
-          className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-        />
+        <div className="relative w-full h-full max-h-[80vh] flex items-center justify-center">
+          <Image
+            src={fileUrl}
+            alt={file.name}
+            fill
+            sizes="(max-width: 768px) 100vw, 75vw"
+            className="object-contain rounded-lg shadow-lg"
+            unoptimized
+            priority
+          />
+        </div>
       </div>
     );
   }

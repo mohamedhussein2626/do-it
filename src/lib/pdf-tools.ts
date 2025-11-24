@@ -331,7 +331,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
       console.log(`📄 Estimated ${numPages} pages from text (${wordCount} words)`);
     }
   } catch (metaError) {
-    console.warn("⚠️ Could not get page count, estimating from text...");
+    console.warn("⚠️ Could not get page count, estimating from text...", metaError);
     // Estimate page count from text length (~500 words per page)
     const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
     numPages = Math.max(1, Math.ceil(wordCount / 500));

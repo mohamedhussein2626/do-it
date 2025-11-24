@@ -7,6 +7,7 @@
 // Import polyfills FIRST before any pdf-parse usage
 import "./init-polyfills";
 import { configurePdfjsWorker } from "./pdf-worker-utils";
+import type { PDFDocumentProxy, TextContentItem } from "pdfjs-dist/types/src/display/api";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -307,7 +308,7 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
 // Cache for parsed PDF data to avoid re-parsing
 let cachedPdfData: { buffer: Buffer; data: PdfParseResult } | null = null;
 // Cache for pdfjs-dist document to avoid re-loading
-let cachedPdfJsDoc: { buffer: Buffer; doc: any } | null = null;
+let cachedPdfJsDoc: { buffer: Buffer; doc: PDFDocumentProxy } | null = null;
 
 /**
  * Extract text from a specific page using pdfjs-dist for per-page extraction
@@ -359,7 +360,7 @@ async function extractTextByPage(
       
       // Combine all text items from the page
       const pageText = textContent.items
-        .map((item: any) => item.str || '')
+        .map((item: TextContentItem) => ("str" in item ? item.str : ""))
         .join(' ');
       
       console.log(`📄 Extracted ${pageText.length} characters from page ${pageNum} using pdfjs-dist`);

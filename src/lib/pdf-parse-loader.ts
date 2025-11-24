@@ -61,6 +61,9 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
   let pdfParseModule: PdfParseModule | null = null;
   const errors: string[] = [];
 
+  const formatError = (value: unknown) =>
+    value instanceof Error ? value.message : String(value);
+
   // Use dynamic import() which works in both dev and prod ESM contexts
   // Polyfills are already loaded via the import at the top of the file
   try {
@@ -70,12 +73,14 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
       pdfParseModule = await import("pdf-parse") as PdfParseModule;
       console.log("✅ Loaded pdf-parse via direct dynamic import()");
     } catch (directImportError) {
+      errors.push(`direct import failed: ${formatError(directImportError)}`);
       // Strategy 2: Try with explicit .default for ESM modules
       try {
-        const module = await import("pdf-parse");
-        pdfParseModule = (module.default || module) as PdfParseModule;
+        const pdfParseImport = await import("pdf-parse");
+        pdfParseModule = (pdfParseImport.default || pdfParseImport) as PdfParseModule;
         console.log("✅ Loaded pdf-parse via .default import()");
       } catch (defaultImportError) {
+        errors.push(`default import failed: ${formatError(defaultImportError)}`);
         // Strategy 3: Try require in Node.js context (fallback)
         if (typeof require !== 'undefined') {
           try {
@@ -83,6 +88,7 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
             pdfParseModule = require("pdf-parse") as PdfParseModule;
             console.log("✅ Loaded pdf-parse via require() fallback");
           } catch (requireError) {
+            errors.push(`require() failed: ${formatError(requireError)}`);
             throw directImportError; // Throw original error
           }
         } else {
@@ -311,7 +317,7 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
             return directResult;
           }
         } catch (directError) {
-          console.log("📝 Function call failed, trying class instantiation...");
+          console.log("📝 Function call failed, trying class instantiation...", directError);
         }
         
         // Convert Buffer to Uint8Array - PDF.js requires Uint8Array, not Buffer
@@ -331,8 +337,8 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
           console.log("📦 Creating PDFParse instance with DocumentInitParameters...");
           instance = new ClassConstructor(documentInitParams as unknown as Buffer) as unknown as Record<string, unknown>;
         } catch (paramError) {
+          console.log("📦 DocumentInitParams failed, trying with buffer directly...", paramError);
           // Method 2: Try with just the buffer
-          console.log("📦 DocumentInitParams failed, trying with buffer directly...");
           instance = new ClassConstructor(buffer) as unknown as Record<string, unknown>;
         }
         
