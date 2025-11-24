@@ -410,6 +410,22 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
         console.log("📦 Has getInfo:", typeof instance.getInfo === 'function');
         console.log("📦 Has text:", 'text' in instance);
         console.log("📦 Has numpages:", 'numpages' in instance);
+        console.log("📦 Has doc:", 'doc' in instance);
+        
+        // CRITICAL: Wait for document to be loaded if it's a promise
+        // pdf-parse v2.4.3 might load the document asynchronously
+        if (instance.doc && typeof instance.doc === 'object') {
+          // Check if doc is a promise
+          if ('then' in instance.doc && typeof instance.doc.then === 'function') {
+            console.log("📝 Document is a promise, waiting for it to resolve...");
+            try {
+              instance.doc = await (instance.doc as Promise<Record<string, unknown>>);
+              console.log("✅ Document promise resolved");
+            } catch (docPromiseError) {
+              console.warn("⚠️ Document promise failed:", docPromiseError instanceof Error ? docPromiseError.message : String(docPromiseError));
+            }
+          }
+        }
         
         // Check if instance has text directly (some versions return it immediately)
         if (instance.text && typeof instance.text === 'string' && instance.text.length > 0) {

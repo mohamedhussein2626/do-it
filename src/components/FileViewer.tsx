@@ -27,9 +27,10 @@ const FileViewer: React.FC<FileViewerProps> = ({ file }) => {
   const isMarkdown = file.fileType === "text/markdown";
   const isImage = file.fileType?.startsWith("image/");
 
-  // For PDF files, use the PDF renderer
+  // For PDF files, show full text content (like Word files)
+  // This ensures all tools work properly with full content
   if (isPDF) {
-    return <PdfRenderer url={getAbsoluteFileUrl(file.url, file.key)} />;
+    return <TextContentViewer file={file} />;
   }
 
   // For Word files, show content viewer

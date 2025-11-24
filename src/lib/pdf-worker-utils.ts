@@ -39,16 +39,20 @@ export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") 
   const instance = pdfjsInstance as {
     GlobalWorkerOptions?: { workerSrc?: string | null };
     disableWorker?: boolean;
+    [key: string]: unknown;
   };
 
-  // Configure worker - use webpack alias that should resolve at build time
-  // The webpack alias in next.config.ts maps "pdf.worker.js" to the actual worker file
-  // This works because webpack processes the require() calls in the bundled chunks
+  // CRITICAL: Disable worker completely by setting workerSrc to empty string
+  // This forces pdfjs-dist to use main thread mode (no worker)
+  // The legacy build supports this mode
   if (instance.GlobalWorkerOptions) {
-    // Use the alias - webpack will resolve this to the actual worker path
-    // Both "pdf.worker.js" and "./pdf.worker.js" should be handled by the alias
-    instance.GlobalWorkerOptions.workerSrc = "pdf.worker.js";
-    console.log(`[pdf-worker] Configured ${context} worker to: pdf.worker.js (webpack alias)`);
+    instance.GlobalWorkerOptions.workerSrc = "";
+    console.log(`[pdf-worker] Disabled ${context} worker (main thread mode)`);
+  }
+  
+  // Also try to set disableWorker if it exists
+  if ('disableWorker' in instance && typeof instance.disableWorker === 'boolean') {
+    instance.disableWorker = true;
   }
 }
 

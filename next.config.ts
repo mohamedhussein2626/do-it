@@ -40,6 +40,19 @@ const nextConfig: NextConfig = {
           "pdfjs-dist/build/pdf.worker.js": workerPath,
         };
         
+        // Use NormalModuleReplacementPlugin to replace worker requires at build time
+        config.plugins.push(
+          new webpack.NormalModuleReplacementPlugin(
+            /pdf\.worker\.(js|mjs)$/,
+            (resource: { request: string }) => {
+              // Replace any pdf.worker.js requires with the actual worker path
+              if (resource.request.includes('pdf.worker')) {
+                resource.request = workerPath;
+              }
+            }
+          )
+        );
+        
         console.log(`[next.config] Configured PDF worker alias: ${workerPath}`);
       } catch (error) {
         console.warn(`[next.config] Could not resolve PDF worker path:`, error);

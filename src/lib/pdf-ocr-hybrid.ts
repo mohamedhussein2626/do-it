@@ -95,17 +95,19 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
       // Always use legacy build (no worker needed, works in serverless)
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
       
-      // Disable workers completely for server-side
+      // Configure worker BEFORE loading document
       configurePdfjsWorker(pdfjs, "pdfjs-dist(metadata)");
       
       const uint8Array = new Uint8Array(pdfBuffer);
       
-      // Load PDF document with worker disabled
+      // Load PDF document with worker disabled - use legacy API that doesn't require worker
       const loadingTask = pdfjs.getDocument({ 
         data: uint8Array,
         verbosity: 0,
         useWorkerFetch: false,
         useSystemFonts: false,
+        // Force disable worker completely
+        isEvalSupported: false,
       });
       
       const pdfDoc = await loadingTask.promise;
@@ -328,7 +330,7 @@ async function extractTextByPage(
       // Always use legacy build (no worker needed, works in serverless)
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
       
-      // Disable workers completely for server-side
+      // Configure worker BEFORE loading document
       configurePdfjsWorker(pdfjs, "pdfjs-dist(per-page)");
       
       // Check cache for pdfjs document
@@ -339,13 +341,16 @@ async function extractTextByPage(
         // Convert Buffer to Uint8Array (pdfjs-dist requires Uint8Array)
         const uint8Array = new Uint8Array(pdfBuffer);
         
-        // Load the PDF document with worker disabled
+        // Load the PDF document with worker disabled - use legacy API
         const loadingTask = pdfjs.getDocument({ 
           data: uint8Array,
           verbosity: 0, // Reduce logging
           useWorkerFetch: false,
           useSystemFonts: false,
+          // Force disable worker completely
+          isEvalSupported: false,
         });
+        
         pdfDoc = await loadingTask.promise;
         
         // Cache the document
