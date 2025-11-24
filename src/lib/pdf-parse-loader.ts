@@ -169,68 +169,133 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
       };
     }
     
-    // Try to access the doc property which might have the text
-    if (instance.doc && typeof instance.doc === 'object') {
-      const doc = instance.doc as Record<string, unknown>;
-      
-      // Check if doc has text directly
-      if (doc.text && typeof doc.text === 'string' && doc.text.length > 0) {
-        console.log(`✅ Found text in doc.text: ${doc.text.length} chars`);
-        return {
-          numpages: (doc.numpages as number) || (doc.numPages as number) || 1,
-          numPages: (doc.numPages as number) || (doc.numpages as number) || 1,
-          numrender: (doc.numrender as number) || 1,
-          info: (doc.info as Record<string, unknown>) || {},
-          metadata: (doc.metadata as Record<string, unknown> | null) || null,
-          text: doc.text,
-          version: '1.4',
-        };
-      }
-    }
-    
-    // pdf-parse v2.4.3: Try calling getText() and getInfo() methods (but don't fail if worker is missing)
-    let text = '';
+    // CRITICAL: Access the document directly from the instance
+    // pdf-parse's PDFParse class stores the document in instance.doc after construction
+    let pdfDoc: Record<string, unknown> | null = null;
     let numPages = 0;
+    let text = '';
     let info: Record<string, unknown> = {};
     let metadata: Record<string, unknown> | null = null;
     
     try {
-      // Call getText() to extract text - but catch worker errors gracefully
-      if (instance.getText && typeof instance.getText === 'function') {
+      // First, check if doc is already available (pdf-parse loads it during construction)
+      if (instance.doc && typeof instance.doc === 'object') {
+        pdfDoc = instance.doc as Record<string, unknown>;
+        console.log("✅ Found document in instance.doc");
+      } else if (instance.load && typeof instance.load === 'function') {
+        // Try to load the document if load() method exists
+        console.log("📝 Loading PDF document via load()...");
+        try {
+          pdfDoc = (await (instance.load as () => Promise<Record<string, unknown>>)()) as Record<string, unknown> | null;
+        } catch (loadError) {
+          console.warn("⚠️ load() failed:", loadError instanceof Error ? loadError.message : String(loadError));
+        }
+      }
+      
+      // If we have the document, extract text directly
+      if (pdfDoc && typeof pdfDoc === 'object') {
+        try {
+          // Get page count
+          if (typeof pdfDoc.numPages === 'number') {
+            numPages = pdfDoc.numPages;
+          } else {
+            const pdfInfo = pdfDoc._pdfInfo;
+            if (pdfInfo && typeof pdfInfo === 'object' && pdfInfo !== null && 'numPages' in pdfInfo) {
+              const pdfInfoRecord = pdfInfo as Record<string, unknown>;
+              if (typeof pdfInfoRecord.numPages === 'number') {
+                numPages = pdfInfoRecord.numPages;
+              }
+            }
+          }
+          
+          console.log(`📄 Document has ${numPages} pages`);
+          
+          // Try to get metadata
+          if (pdfDoc.getMetadata && typeof pdfDoc.getMetadata === 'function') {
+            try {
+              const pdfMetadata = await pdfDoc.getMetadata();
+              if (pdfMetadata) {
+                info = (pdfMetadata.info as Record<string, unknown>) || {};
+                metadata = (pdfMetadata.metadata as Record<string, unknown>) || null;
+              }
+            } catch (metaError) {
+              console.warn("⚠️ Could not get metadata:", metaError instanceof Error ? metaError.message : String(metaError));
+            }
+          }
+          
+          // Extract text from all pages directly using pdfjs-dist API
+          if (numPages > 0 && pdfDoc.getPage && typeof pdfDoc.getPage === 'function') {
+            console.log(`📄 Extracting text from ${numPages} pages...`);
+            const pageTexts: string[] = [];
+            
+            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+              try {
+                const page = await pdfDoc.getPage(pageNum);
+                if (page && page.getTextContent && typeof page.getTextContent === 'function') {
+                  const textContent = await page.getTextContent();
+                  
+                  // Combine all text items from the page
+                  if (textContent && textContent.items && Array.isArray(textContent.items)) {
+                    const pageText = textContent.items
+                      .filter((item: unknown): item is { str?: string } => {
+                        return Boolean(item && typeof item === 'object' && item !== null && 'str' in item);
+                      })
+                      .map((item: { str?: string }) => (item.str || ''))
+                      .join(' ');
+                    
+                    if (pageText.trim()) {
+                      pageTexts.push(pageText);
+                    }
+                  }
+                  
+                  // Clean up page
+                  if (page.cleanup && typeof page.cleanup === 'function') {
+                    page.cleanup();
+                  }
+                }
+              } catch (pageError) {
+                console.warn(`⚠️ Error extracting text from page ${pageNum}:`, pageError instanceof Error ? pageError.message : String(pageError));
+              }
+            }
+            
+            text = pageTexts.join('\n\n');
+            console.log(`✅ Extracted ${text.length} characters from ${numPages} pages`);
+          }
+        } catch (docError) {
+          console.warn("⚠️ Error accessing document:", docError instanceof Error ? docError.message : String(docError));
+        }
+      }
+      
+      // Fallback: Try getText() and getInfo() if load() didn't work or didn't extract text
+      if (!text && instance.getText && typeof instance.getText === 'function') {
         console.log("📝 Attempting to call instance.getText()...");
         try {
           const textResult = await (instance.getText as () => Promise<{ text?: string; pages?: Array<{ text?: string }> }>)();
           if (textResult && typeof textResult === 'object') {
-            // TextResult has a 'text' property with the full text
             if (typeof textResult.text === 'string') {
               text = textResult.text;
             }
-            // It might also have a 'pages' array with per-page text
             if (textResult.pages && Array.isArray(textResult.pages)) {
               if (!text) {
-                // Combine all page texts if we don't have full text
                 text = textResult.pages
                   .map(page => (page && typeof page === 'object' && typeof page.text === 'string' ? page.text : ''))
                   .filter(t => t)
                   .join('\n\n');
               }
-              numPages = textResult.pages.length;
+              if (!numPages) {
+                numPages = textResult.pages.length;
+              }
             }
           }
           console.log(`✅ Got text from getText(): ${text.length} characters, ${numPages} pages`);
         } catch (getTextError) {
-          // Worker error is expected - log but don't fail
           const errorMsg = getTextError instanceof Error ? getTextError.message : String(getTextError);
-          if (errorMsg.includes('worker') || errorMsg.includes('pdf.worker')) {
-            console.warn("⚠️ Worker not available (expected in some environments), trying alternative methods...");
-          } else {
-            console.warn("⚠️ getText() failed:", errorMsg);
-          }
+          console.warn("⚠️ getText() failed:", errorMsg);
         }
       }
       
-      // Call getInfo() to get metadata and page count
-      if (instance.getInfo && typeof instance.getInfo === 'function') {
+      // Fallback: Try getInfo() if we don't have page count
+      if (!numPages && instance.getInfo && typeof instance.getInfo === 'function') {
         console.log("📝 Attempting to call instance.getInfo()...");
         try {
           const infoResult = await (instance.getInfo as () => Promise<{ 
@@ -247,7 +312,6 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
             if (infoResult.metadata && typeof infoResult.metadata === 'object') {
               metadata = infoResult.metadata as Record<string, unknown>;
             }
-            // Get page count from info - InfoResult uses 'total' for page count
             if (typeof infoResult.total === 'number') {
               numPages = infoResult.total;
             } else if (typeof infoResult.numPages === 'number') {
@@ -272,18 +336,16 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
         }
       }
       
-      // If we have text, return it even if page count is uncertain
-      if (text || numPages > 0) {
-        return {
-          numpages: numPages,
-          numPages: numPages,
-          numrender: numPages,
-          info: info,
-          metadata: metadata,
-          text: text,
-          version: (info.PDFFormatVersion as string) || '1.4',
-        };
-      }
+      // Return result
+      return {
+        numpages: numPages,
+        numPages: numPages,
+        numrender: numPages,
+        info: info,
+        metadata: metadata,
+        text: text,
+        version: (info.PDFFormatVersion as string) || '1.4',
+      };
     } catch (error) {
       console.error("❌ Error in extractPdfDataFromInstance:", error);
     }
@@ -363,6 +425,20 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
           };
         }
         
+        // CRITICAL: Check if instance.doc exists - pdf-parse loads the document during construction
+        // We can extract text directly from it without needing getText()/getInfo()
+        if (instance.doc && typeof instance.doc === 'object') {
+          console.log("✅ Found instance.doc - extracting text directly from document");
+          try {
+            const docResult = await extractPdfDataFromInstance(instance);
+            if (docResult.text && docResult.text.length > 0) {
+              return docResult;
+            }
+          } catch (docError) {
+            console.warn("⚠️ Direct document extraction failed, trying getText()/getInfo()...", docError instanceof Error ? docError.message : String(docError));
+          }
+        }
+        
         // Check if instance is a promise (shouldn't be, but check anyway)
         if (instance && 'then' in instance && typeof instance.then === 'function') {
           const result = await (instance as unknown as Promise<Record<string, unknown>>);
@@ -370,6 +446,7 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
         }
         
         // Extract PDF data from instance by calling getText() and getInfo()
+        // This is a fallback if direct document access didn't work
         return await extractPdfDataFromInstance(instance);
       } catch (error) {
         console.error("❌ Error creating PDFParse instance:", error);

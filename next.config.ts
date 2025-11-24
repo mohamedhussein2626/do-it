@@ -20,22 +20,30 @@ const nextConfig: NextConfig = {
     
     // Ensure pdf-parse and its dependencies work properly
     if (isServer) {
-      const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
-      // Don't externalize pdf-parse - bundle it for production compatibility
-      // This ensures it works in both dev and production
-      
-      // Polyfill browser APIs that pdf-parse might need
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        canvas: false,
-        encoding: false,
-      };
-      
-      // Ensure pdf-parse can be resolved correctly
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        "pdf.worker.js": workerPath,
-      };
+      try {
+        const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
+        
+        // Polyfill browser APIs that pdf-parse might need
+        config.resolve.fallback = {
+          ...config.resolve.fallback,
+          canvas: false,
+          encoding: false,
+        };
+        
+        // Handle both relative and module paths for worker
+        // pdfjs-dist may try to require './pdf.worker.js' or 'pdf.worker.js'
+        config.resolve.alias = {
+          ...config.resolve.alias,
+          "pdf.worker.js": workerPath,
+          "./pdf.worker.js": workerPath,
+          "pdfjs-dist/legacy/build/pdf.worker.js": workerPath,
+          "pdfjs-dist/build/pdf.worker.js": workerPath,
+        };
+        
+        console.log(`[next.config] Configured PDF worker alias: ${workerPath}`);
+      } catch (error) {
+        console.warn(`[next.config] Could not resolve PDF worker path:`, error);
+      }
     }
     
     return config;

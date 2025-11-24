@@ -6,7 +6,6 @@ type PdfJsWorkerModule = {
 import pdfjsWorkerModule from "pdfjs-dist/legacy/build/pdf.worker.js";
 
 let globalWorkerRegistered = false;
-const WORKER_SRC_PLACEHOLDER = "pdf.worker.js";
 
 interface GlobalPdfWorkerScope {
   pdfjsWorker?: PdfJsWorkerModule;
@@ -42,11 +41,14 @@ export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") 
     disableWorker?: boolean;
   };
 
-  // Completely disable workers on server - use main thread only
+  // Configure worker - use webpack alias that should resolve at build time
+  // The webpack alias in next.config.ts maps "pdf.worker.js" to the actual worker file
+  // This works because webpack processes the require() calls in the bundled chunks
   if (instance.GlobalWorkerOptions) {
-    // Set to empty string to disable worker completely
-    instance.GlobalWorkerOptions.workerSrc = "";
-    console.log(`[pdf-worker] Disabled ${context} worker (server-side main thread only)`);
+    // Use the alias - webpack will resolve this to the actual worker path
+    // Both "pdf.worker.js" and "./pdf.worker.js" should be handled by the alias
+    instance.GlobalWorkerOptions.workerSrc = "pdf.worker.js";
+    console.log(`[pdf-worker] Configured ${context} worker to: pdf.worker.js (webpack alias)`);
   }
 }
 
@@ -57,13 +59,13 @@ export async function configurePdfParseWorker(pdfParseModule: unknown) {
 
   registerGlobalWorker();
 
-  // First, ensure pdfjs-dist (used by pdf-parse) has workers disabled globally
+  // Configure pdfjs-dist (used by pdf-parse) to use the webpack alias
   // pdf-parse loads pdfjs-dist internally, so we configure it first
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
     if (pdfjs && pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
-      console.log(`[pdf-worker] Disabled pdfjs-dist worker for pdf-parse`);
+      pdfjs.GlobalWorkerOptions.workerSrc = "pdf.worker.js";
+      console.log(`[pdf-worker] Configured pdfjs-dist worker for pdf-parse to: pdf.worker.js`);
     }
   } catch (error) {
     console.warn(`[pdf-worker] Could not configure pdfjs-dist for pdf-parse:`, error);
@@ -72,10 +74,12 @@ export async function configurePdfParseWorker(pdfParseModule: unknown) {
   const pdfParseClass = (pdfParseModule as { PDFParse?: { setWorker?: (src: string) => string | void } }).PDFParse;
 
   if (pdfParseClass && typeof pdfParseClass.setWorker === "function") {
-    // Set to empty string to disable worker completely (server-side main thread only)
-    const configuredSrc = pdfParseClass.setWorker("");
+    // Use the webpack alias - same as pdfjs-dist
+    const configuredSrc = pdfParseClass.setWorker("pdf.worker.js");
     if (configuredSrc !== undefined) {
-      console.log(`[pdf-worker] pdf-parse worker disabled (server-side)`);
+      console.log(`[pdf-worker] pdf-parse worker configured to: ${configuredSrc}`);
+    } else {
+      console.log(`[pdf-worker] pdf-parse worker configured to: pdf.worker.js`);
     }
   }
 }
