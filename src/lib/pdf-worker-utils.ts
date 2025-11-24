@@ -3,6 +3,11 @@ import path from "path";
 
 let cachedWorkerSrc: string | null = null;
 let warnedMissingWorker = false;
+let globalWorkerRegistered = false;
+
+interface GlobalPdfWorkerScope {
+  pdfjsWorker?: unknown;
+}
 
 function isServerEnvironment() {
   return typeof window === "undefined" && typeof process !== "undefined";
@@ -55,6 +60,22 @@ export function getServerPdfWorkerSrc(): string | null {
   return null;
 }
 
+function registerGlobalWorker(workerSrc: string) {
+  if (globalWorkerRegistered) {
+    return;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const workerModule = require(workerSrc);
+    (globalThis as GlobalPdfWorkerScope).pdfjsWorker = workerModule;
+    globalWorkerRegistered = true;
+    console.log(`[pdf-worker] Registered global worker handler from ${workerSrc}`);
+  } catch (error) {
+    console.warn(`[pdf-worker] Failed to register global worker handler:`, error);
+  }
+}
+
 export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") {
   if (!isServerEnvironment() || !pdfjsInstance) {
     return;
@@ -65,8 +86,11 @@ export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") 
     return;
   }
 
+  registerGlobalWorker(workerSrc);
+
   const instance = pdfjsInstance as {
     GlobalWorkerOptions?: { workerSrc?: string };
+    disableWorker?: boolean;
   };
 
   if (instance.GlobalWorkerOptions) {
@@ -74,6 +98,10 @@ export function configurePdfjsWorker(pdfjsInstance: unknown, context = "pdfjs") 
       console.log(`[pdf-worker] Configuring ${context} worker to ${workerSrc}`);
       instance.GlobalWorkerOptions.workerSrc = workerSrc;
     }
+  }
+
+  if (instance.disableWorker !== true) {
+    instance.disableWorker = true;
   }
 }
 
@@ -86,6 +114,8 @@ export function configurePdfParseWorker(pdfParseModule: unknown) {
   if (!workerSrc) {
     return;
   }
+
+  registerGlobalWorker(workerSrc);
 
   const pdfParseClass = (pdfParseModule as { PDFParse?: { setWorker?: (src: string) => string | void } }).PDFParse;
 
