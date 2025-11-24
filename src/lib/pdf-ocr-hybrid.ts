@@ -119,10 +119,12 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
       // Get metadata if available
       try {
         const metadata = await pdfDoc.getMetadata();
+        const infoData = (metadata?.info || {}) as Record<string, unknown>;
+        const metadataData = (metadata?.metadata || undefined) as Record<string, unknown> | undefined;
         return {
           numPages,
-          info: metadata?.info || {},
-          metadata: metadata?.metadata || undefined,
+          info: infoData,
+          metadata: metadataData,
         };
       } catch {
         return {
