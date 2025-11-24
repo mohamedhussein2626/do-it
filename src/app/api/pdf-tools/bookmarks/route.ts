@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 // Import polyfills FIRST before any pdf-parse usage
-import "@/lib/dom-polyfills";
+import "@/lib/init-polyfills";
 import { generateBookmarks } from "@/lib/pdf-tools";
 
 export const maxDuration = 60;
@@ -22,12 +22,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ bookmarks });
   } catch (error) {
     console.error("Error generating bookmarks:", error);
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to generate bookmarks",
-      },
-      { status: 500 }
-    );
+    console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
+    
+    // Return default bookmarks instead of error to prevent UI from breaking
+    return NextResponse.json({ 
+      bookmarks: [{ title: "Page 1", page: 1 }],
+      error: error instanceof Error ? error.message : "Failed to generate bookmarks",
+    });
   }
 }
 

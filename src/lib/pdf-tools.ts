@@ -4,13 +4,14 @@
  */
 
 // Import polyfills FIRST before any pdf-parse usage
-import "./dom-polyfills";
-import { loadPdfParse } from "./pdf-parse-loader";
+import "./init-polyfills";
+import { processHybridPdf } from "./pdf-ocr-hybrid"; // Use the same extraction method as upload
 import { db } from "@/db";
 import { getServerSession } from "@/lib/auth-api";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
 import { Readable } from "stream";
+import mammoth from "mammoth";
 
 // ============================================================================
 // Types
@@ -35,10 +36,10 @@ export interface Bookmark {
 }
 
 // ============================================================================
-// Helper: Get PDF Buffer from File
+// Helper: Get File Buffer (supports all file types)
 // ============================================================================
 
-export async function getPdfBuffer(fileId: string): Promise<Buffer> {
+export async function getFileBuffer(fileId: string): Promise<{ buffer: Buffer; fileType: string | null }> {
   const session = await getServerSession();
   if (!session) {
     throw new Error("Unauthorized");
@@ -58,10 +59,6 @@ export async function getPdfBuffer(fileId: string): Promise<Buffer> {
 
   if (!file) {
     throw new Error("File not found");
-  }
-
-  if (!file.fileType?.includes("pdf")) {
-    throw new Error("File is not a PDF");
   }
 
   // Get file from R2
@@ -84,19 +81,172 @@ export async function getPdfBuffer(fileId: string): Promise<Buffer> {
   }
   const buffer = Buffer.concat(chunks);
 
+  console.log(`📦 File buffer retrieved: ${buffer.length} bytes, type: ${file.fileType}`);
+
+  return { buffer, fileType: file.fileType };
+}
+
+// Get text from database chunks (created during upload) - this is the PRIMARY method
+async function getTextFromChunks(fileId: string): Promise<{ text: string; numPages: number }> {
+  try {
+    const chunks = await db.chunk.findMany({
+      where: { fileId },
+      orderBy: { createdAt: "asc" },
+      take: 10000, // Get all chunks (increased limit)
+    });
+
+    if (chunks.length > 0) {
+      const text = chunks.map((c) => c.text).join("\n\n");
+      // Estimate pages from text (~500 words per page)
+      const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+      const numPages = Math.max(1, Math.ceil(wordCount / 500));
+      console.log(`✅ Retrieved ${chunks.length} chunks from database, ${text.length} characters, estimated ${numPages} pages`);
+      return { text, numPages };
+    }
+    console.warn("⚠️ No chunks found in database");
+    return { text: "", numPages: 1 };
+  } catch (error) {
+    console.error("❌ Error getting text from chunks:", error);
+    return { text: "", numPages: 1 };
+  }
+}
+
+// Legacy function name for backward compatibility
+export async function getPdfBuffer(fileId: string): Promise<Buffer> {
+  const { buffer } = await getFileBuffer(fileId);
   return buffer;
 }
 
 // ============================================================================
-// Helper: Extract Text from PDF
+// Helper: Extract Text from Any File Type
 // ============================================================================
 
+async function extractTextFromFile(buffer: Buffer, fileType: string | null): Promise<{
+  text: string;
+  numPages: number;
+  pageTexts: string[]; // Text for each page
+}> {
+  console.log(`📄 Extracting text from file type: ${fileType || 'unknown'}`);
+  
+  try {
+    // Handle PDF files
+    if (fileType?.includes("pdf") || (!fileType && buffer.slice(0, 4).toString() === '%PDF')) {
+      try {
+        return await extractTextFromPdf(buffer);
+      } catch (pdfError) {
+        console.error("❌ PDF extraction failed, trying fallback:", pdfError);
+        // Fallback to text extraction
+        return await extractTextFromTextFile(buffer);
+      }
+    }
+    
+    // Handle Word documents (DOCX, DOC)
+    if (fileType?.includes("wordprocessingml") || fileType?.includes("msword") || 
+        fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        fileType === "application/msword") {
+      try {
+        return await extractTextFromWord(buffer);
+      } catch (wordError) {
+        console.error("❌ Word extraction failed, trying fallback:", wordError);
+        // Fallback to text extraction
+        return await extractTextFromTextFile(buffer);
+      }
+    }
+    
+    // Handle text files (TXT, MD)
+    if (fileType?.includes("text/") || fileType === "text/plain" || fileType === "text/markdown") {
+      return await extractTextFromTextFile(buffer);
+    }
+    
+    // Default: try to extract as text
+    console.log("⚠️ Unknown file type, attempting text extraction");
+    return await extractTextFromTextFile(buffer);
+  } catch (error) {
+    console.error("❌ All extraction methods failed:", error);
+    // Return minimal result to prevent complete failure
+    return {
+      text: "",
+      numPages: 1,
+      pageTexts: [""],
+    };
+  }
+}
+
+// Direct pdf-parse extraction (bypasses page-by-page processing)
+async function extractTextDirectlyFromPdf(buffer: Buffer): Promise<{
+  text: string;
+  numPages: number;
+}> {
+  console.log("📄 Attempting direct pdf-parse extraction...");
+  
+  try {
+    const { loadPdfParse } = await import("./pdf-parse-loader");
+    const parseFn = await loadPdfParse();
+    
+    // Parse the PDF directly
+    console.log("📦 Calling pdf-parse function...");
+    const data = await parseFn(buffer);
+    
+    console.log("📊 PDF parse result structure:", {
+      hasText: typeof data.text === 'string',
+      textLength: typeof data.text === 'string' ? data.text.length : 0,
+      hasDoc: !!data.doc,
+      hasNumPages: typeof data.numPages === 'number',
+      numPages: data.numPages || data.numpages,
+      keys: Object.keys(data),
+    });
+    
+    // Extract text from multiple possible locations
+    let extractedText = "";
+    let numPages = 1;
+    
+    // Try direct text property
+    if (typeof data.text === 'string') {
+      extractedText = data.text;
+      console.log(`📝 data.text: ${extractedText.length} chars (first 100: "${extractedText.substring(0, 100)}")`);
+    }
+    
+    // Try doc.text
+    if (!extractedText && data.doc && typeof data.doc === 'object') {
+      const doc = data.doc as Record<string, unknown>;
+      console.log("📦 Checking doc object, keys:", Object.keys(doc));
+      if (typeof doc.text === 'string') {
+        extractedText = doc.text;
+        console.log(`📝 doc.text: ${extractedText.length} chars (first 100: "${extractedText.substring(0, 100)}")`);
+      }
+    }
+    
+    // Get page count
+    numPages = data.numPages || data.numpages || 1;
+    console.log(`📄 Page count: ${numPages}`);
+    
+    // If we have text, estimate pages if needed
+    if (extractedText && numPages === 1) {
+      const wordCount = extractedText.split(/\s+/).filter(w => w.length > 0).length;
+      numPages = Math.max(1, Math.ceil(wordCount / 500));
+      console.log(`📄 Estimated ${numPages} pages from text (${wordCount} words)`);
+    }
+    
+    if (!extractedText || extractedText.trim().length === 0) {
+      console.warn("⚠️ No text extracted from PDF - PDF might be image-only (scanned)");
+    }
+    
+    return { text: extractedText, numPages };
+  } catch (error) {
+    console.error("❌ Direct pdf-parse extraction failed:", error);
+    console.error("❌ Error details:", error instanceof Error ? error.stack : String(error));
+    return { text: "", numPages: 1 };
+  }
+}
+
+// Extract text from PDF - using the same method as upload (processHybridPdf)
+// This is the PRIMARY method that works during upload
 async function extractTextFromPdf(buffer: Buffer): Promise<{
   text: string;
   numPages: number;
   pageTexts: string[]; // Text for each page
 }> {
-  console.log("📄 Starting PDF text extraction...");
+  console.log("📄 Starting PDF text extraction using processHybridPdf (same as upload)...");
   console.log(`📦 Buffer size: ${buffer.length} bytes`);
   
   // Validate buffer
@@ -107,100 +257,181 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
   // Check if it's a valid PDF
   const header = buffer.slice(0, 4).toString();
   if (header !== '%PDF') {
-    throw new Error(`Invalid PDF file: expected PDF header, got "${header}"`);
+    console.warn(`⚠️ Warning: PDF header check failed, got "${header}". Attempting to parse anyway...`);
+  } else {
+    console.log(`✅ PDF header valid: ${header}`);
   }
   
-  console.log(`✅ PDF header valid: ${header}`);
+  // Use processHybridPdf FIRST - this is what works during upload!
+  // IMPORTANT: Use the SAME settings as upload (extractImageText: true)
+  console.log("🔍 Using processHybridPdf (same method as upload with extractImageText: true)...");
+  let fullText = "";
+  let numPages = 1;
   
   try {
-    const pdfParse = await loadPdfParse();
-    console.log("✅ pdf-parse function loaded");
-    
-    const result = await pdfParse(buffer);
-    console.log("✅ PDF parsed successfully");
-    console.log("📊 Parse result keys:", Object.keys(result));
-    console.log("📊 Result structure:", {
-      hasNumpages: 'numpages' in result,
-      hasNumPages: 'numPages' in result,
-      hasText: 'text' in result,
-      hasDoc: 'doc' in result,
-      numpagesValue: result.numpages,
-      numPagesValue: result.numPages,
-      textLength: result.text ? result.text.length : 0,
-      textPreview: result.text ? result.text.substring(0, 100) : 'N/A',
+    // Use the EXACT same method as upload - this is what works!
+    fullText = await processHybridPdf(buffer, {
+      extractImageText: true, // Same as upload - extract from images too
+      maxPages: Infinity, // Process ALL pages
     });
-
-    const numPages = result.numpages || result.numPages || 0;
-    let fullText = result.text || "";
-    const pageTexts: string[] = [];
     
-    console.log(`📄 Extracted ${numPages} pages, ${fullText.length} characters`);
-
-  // Try to get per-page text from pdf-parse if available
-  // Check if result has a doc object with getText() method that returns pages
-  if (result.doc && typeof result.doc === 'object') {
-    const doc = result.doc as Record<string, unknown>;
+    console.log(`✅ processHybridPdf extracted: ${fullText.length} characters`);
     
-    // Try to call getText() if it exists
-    if (doc.getText && typeof doc.getText === 'function') {
+    // If still no text, try without OCR (might be faster for some PDFs)
+    if (!fullText || fullText.trim().length === 0) {
+      console.log("⚠️ No text with OCR, trying without OCR...");
       try {
-        const textResult = await (doc.getText as () => Promise<{ 
-          text?: string; 
-          pages?: Array<{ text?: string }> 
-        }>)();
-        
-        if (textResult && typeof textResult === 'object') {
-          // Get full text
-          if (typeof textResult.text === 'string') {
-            fullText = textResult.text;
-          }
-          
-          // Get per-page text if available
-          if (textResult.pages && Array.isArray(textResult.pages)) {
-            for (const page of textResult.pages) {
-              if (page && typeof page === 'object' && typeof page.text === 'string') {
-                pageTexts.push(page.text);
-              } else {
-                pageTexts.push("");
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to extract per-page text via getText():", error);
+        fullText = await processHybridPdf(buffer, {
+          extractImageText: false, // Try without OCR
+          maxPages: Infinity, // Process ALL pages
+        });
+        console.log(`✅ processHybridPdf (no OCR) extracted: ${fullText.length} characters`);
+      } catch (noOcrError) {
+        console.warn("⚠️ No-OCR extraction also failed:", noOcrError);
       }
     }
+  } catch (error) {
+    console.error("❌ processHybridPdf failed:", error);
+    console.error("❌ Error details:", error instanceof Error ? error.stack : String(error));
+    // Try direct pdf-parse as last resort
+    console.log("⚠️ Trying direct pdf-parse as fallback...");
+    try {
+      const directResult = await extractTextDirectlyFromPdf(buffer);
+      if (directResult.text && directResult.text.trim().length > 0) {
+        fullText = directResult.text;
+        numPages = directResult.numPages;
+        console.log(`✅ Direct pdf-parse fallback successful: ${fullText.length} chars, ${numPages} pages`);
+      }
+    } catch (parseError) {
+      console.error("❌ Direct pdf-parse also failed:", parseError);
+    }
   }
+  
+  if (!fullText || fullText.trim().length === 0) {
+    console.warn("⚠️ No text extracted from PDF using any method");
+    return {
+      text: "",
+      numPages: 1,
+      pageTexts: [""],
+    };
+  }
+  
+  // Get accurate page count - try to extract from PDF metadata
+  // If that fails, estimate from text
+  try {
+    // Try to get page count from pdf-parse
+    const directResult = await extractTextDirectlyFromPdf(buffer);
+    if (directResult.numPages > 1) {
+      numPages = directResult.numPages;
+      console.log(`📄 Got page count from pdf-parse: ${numPages} pages`);
+    } else {
+      // Estimate from text
+      const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
+      numPages = Math.max(1, Math.ceil(wordCount / 500));
+      console.log(`📄 Estimated ${numPages} pages from text (${wordCount} words)`);
+    }
+  } catch (metaError) {
+    console.warn("⚠️ Could not get page count, estimating from text...");
+    // Estimate page count from text length (~500 words per page)
+    const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
+    numPages = Math.max(1, Math.ceil(wordCount / 500));
+    console.log(`📄 Estimated ${numPages} pages from text (${wordCount} words)`);
+  }
+  
+  // Split text into pages for bookmarks
+  const pageTexts: string[] = [];
+  const words = fullText.split(/\s+/);
+  const wordsPerPage = Math.ceil(words.length / numPages);
+  
+  for (let i = 0; i < numPages; i++) {
+    const start = i * wordsPerPage;
+    const end = Math.min((i + 1) * wordsPerPage, words.length);
+    pageTexts.push(words.slice(start, end).join(" ") || "");
+  }
+  
+  console.log(`✅ Final result: ${numPages} pages, ${fullText.length} characters, ${pageTexts.length} page texts`);
+  
+  return {
+    text: fullText,
+    numPages,
+    pageTexts,
+  };
+}
 
-  // If we didn't get per-page text, fall back to distributing text evenly
-  if (pageTexts.length === 0 && numPages > 0 && fullText) {
-    // Divide text by pages (simple approach)
-    const wordsPerPage = Math.ceil(fullText.split(/\s+/).length / numPages);
-    const words = fullText.split(/\s+/);
+// Extract text from Word documents (DOCX, DOC)
+async function extractTextFromWord(buffer: Buffer): Promise<{
+  text: string;
+  numPages: number;
+  pageTexts: string[];
+}> {
+  console.log("📝 Extracting text from Word document...");
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    const fullText = result.value || "";
     
-    for (let i = 0; i < numPages; i++) {
+    // Estimate pages (average 500 words per page)
+    const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
+    const estimatedPages = Math.max(1, Math.ceil(wordCount / 500));
+    
+    // Split text into pages (rough estimate)
+    const words = fullText.split(/\s+/);
+    const wordsPerPage = Math.ceil(words.length / estimatedPages);
+    const pageTexts: string[] = [];
+    
+    for (let i = 0; i < estimatedPages; i++) {
       const start = i * wordsPerPage;
       const end = Math.min((i + 1) * wordsPerPage, words.length);
       pageTexts.push(words.slice(start, end).join(" ") || "");
     }
-  } else if (pageTexts.length === 0) {
-    // Fallback: use full text for all pages
-    for (let i = 0; i < numPages; i++) {
-      pageTexts.push(fullText);
-    }
-  }
-
-    console.log(`✅ Final result: ${numPages} pages, ${fullText.length} characters, ${pageTexts.length} page texts`);
+    
+    console.log(`✅ Extracted ${fullText.length} characters, estimated ${estimatedPages} pages`);
     
     return {
       text: fullText,
-      numPages,
+      numPages: estimatedPages,
       pageTexts,
     };
   } catch (error) {
-    console.error("❌ Error extracting text from PDF:", error);
-    console.error("❌ Error details:", error instanceof Error ? error.stack : String(error));
-    throw new Error(`Failed to extract text from PDF: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("❌ Error extracting text from Word document:", error);
+    throw new Error(`Failed to extract text from Word document: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// Extract text from text files (TXT, MD)
+async function extractTextFromTextFile(buffer: Buffer): Promise<{
+  text: string;
+  numPages: number;
+  pageTexts: string[];
+}> {
+  console.log("📝 Extracting text from text file...");
+  try {
+    const fullText = buffer.toString('utf-8');
+    
+    // Estimate pages (average 500 words per page)
+    const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
+    const estimatedPages = Math.max(1, Math.ceil(wordCount / 500));
+    
+    // Split text into pages by lines (rough estimate)
+    const lines = fullText.split('\n');
+    const linesPerPage = Math.ceil(lines.length / estimatedPages);
+    const pageTexts: string[] = [];
+    
+    for (let i = 0; i < estimatedPages; i++) {
+      const start = i * linesPerPage;
+      const end = Math.min((i + 1) * linesPerPage, lines.length);
+      pageTexts.push(lines.slice(start, end).join('\n') || "");
+    }
+    
+    console.log(`✅ Extracted ${fullText.length} characters, estimated ${estimatedPages} pages`);
+    
+    return {
+      text: fullText,
+      numPages: estimatedPages,
+      pageTexts,
+    };
+  } catch (error) {
+    console.error("❌ Error extracting text from text file:", error);
+    throw new Error(`Failed to extract text from text file: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -211,34 +442,60 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
 export async function getReadingInsights(fileId: string): Promise<ReadingInsights> {
   console.log(`📊 Getting reading insights for file: ${fileId}`);
   try {
-    const buffer = await getPdfBuffer(fileId);
-    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
+    // Try to get text from database chunks first (faster if available)
+    console.log("📦 Getting text from database chunks (full uploaded file only)...");
+    let { text, numPages } = await getTextFromChunks(fileId);
     
-    const { text, numPages } = await extractTextFromPdf(buffer);
-    console.log(`✅ Extracted text: ${text.length} chars, ${numPages} pages`);
+    // If no chunks found, extract directly from PDF file
+    if (!text || text.trim().length === 0) {
+      console.warn("⚠️ No chunks found in database - extracting directly from PDF file...");
+      try {
+        const { buffer, fileType } = await getFileBuffer(fileId);
+        const extracted = await extractTextFromFile(buffer, fileType);
+        text = extracted.text;
+        numPages = extracted.numPages;
+        console.log(`✅ Extracted text directly from file: ${text.length} chars, ${numPages} pages`);
+      } catch (extractError) {
+        console.error("❌ Error extracting text from file:", extractError);
+        return {
+          totalWordCount: 0,
+          totalCharacterCount: 0,
+          totalPages: 1,
+          estimatedReadingTime: 0,
+          averageWordsPerPage: 0,
+        };
+      }
+    } else {
+      console.log(`✅ Using text from chunks: ${text.length} chars, ${numPages} pages`);
+    }
+    
+    return calculateReadingInsights(text, numPages);
 
-    // Calculate metrics
-    const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
-    const totalWordCount = words.length;
-    const totalCharacterCount = text.length;
-    const totalPages = numPages || 1; // Default to 1 if 0
-    const estimatedReadingTime = Math.ceil(totalWordCount / 200); // 200 words/min
-    const averageWordsPerPage =
-      totalPages > 0 ? Math.round(totalWordCount / totalPages) : 0;
-
-    console.log(`📊 Calculated metrics: ${totalWordCount} words, ${totalCharacterCount} chars, ${totalPages} pages`);
-
-    return {
-      totalWordCount,
-      totalCharacterCount,
-      totalPages,
-      estimatedReadingTime,
-      averageWordsPerPage,
-    };
   } catch (error) {
     console.error("❌ Error in getReadingInsights:", error);
     throw error;
   }
+}
+
+// Helper function to calculate reading insights from text
+function calculateReadingInsights(text: string, numPages: number): ReadingInsights {
+  const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+  const totalWordCount = words.length;
+  const totalCharacterCount = text.length;
+  const totalPages = numPages || 1; // Default to 1 if 0
+  const estimatedReadingTime = Math.max(1, Math.ceil(totalWordCount / 200)); // 200 words/min, min 1
+  const averageWordsPerPage =
+    totalPages > 0 ? Math.round(totalWordCount / totalPages) : 0;
+
+  console.log(`📊 Calculated metrics: ${totalWordCount} words, ${totalCharacterCount} chars, ${totalPages} pages`);
+
+  return {
+    totalWordCount,
+    totalCharacterCount,
+    totalPages,
+    estimatedReadingTime,
+    averageWordsPerPage,
+  };
 }
 
 // ============================================================================
@@ -294,45 +551,90 @@ export async function getKeywordFrequencies(
 ): Promise<KeywordFrequency[]> {
   console.log(`🔍 Getting keyword frequencies for file: ${fileId}, topN: ${topN}`);
   try {
-    const buffer = await getPdfBuffer(fileId);
-    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
+    // Try to get text from database chunks first (faster if available)
+    console.log("📦 Getting text from database chunks (full uploaded file only)...");
+    let { text } = await getTextFromChunks(fileId);
     
-    const { text } = await extractTextFromPdf(buffer);
-    console.log(`✅ Extracted text: ${text.length} characters`);
-
+    // If no chunks found, extract directly from PDF file
     if (!text || text.trim().length === 0) {
-      console.warn("⚠️ No text extracted from PDF");
-      return [];
-    }
-
-    // Extract words
-    const words = text
-      .split(/\s+/)
-      .map(cleanWord)
-      .filter((w) => w.length > 1 && !isStopword(w));
-
-    console.log(`📝 Found ${words.length} valid words after filtering`);
-
-    // Count frequencies
-    const frequencyMap = new Map<string, number>();
-    for (const word of words) {
-      if (word) {
-        frequencyMap.set(word, (frequencyMap.get(word) || 0) + 1);
+      console.warn("⚠️ No chunks found in database - extracting directly from PDF file...");
+      try {
+        const { buffer, fileType } = await getFileBuffer(fileId);
+        const extracted = await extractTextFromFile(buffer, fileType);
+        text = extracted.text;
+        console.log(`✅ Extracted text directly from file: ${text.length} chars`);
+      } catch (extractError) {
+        console.error("❌ Error extracting text from file:", extractError);
+        return [];
       }
+    } else {
+      console.log(`✅ Using text from chunks: ${text.length} chars`);
     }
-
-    // Convert to array and sort
-    const frequencies: KeywordFrequency[] = Array.from(frequencyMap.entries())
-      .map(([word, count]) => ({ word, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, topN);
-
-    console.log(`✅ Found ${frequencies.length} keywords`);
-    return frequencies;
+    
+    return extractKeywords(text, topN);
   } catch (error) {
     console.error("❌ Error in getKeywordFrequencies:", error);
     throw error;
   }
+}
+
+// Helper function to extract keywords from text
+function extractKeywords(text: string, topN: number): KeywordFrequency[] {
+  // Extract words
+  const words = text
+    .split(/\s+/)
+    .map(cleanWord)
+    .filter((w) => w && w.length > 0) // First filter: remove empty
+    .filter((w) => w.length > 1 && !isStopword(w)); // Second filter: remove stopwords
+
+  console.log(`📝 Found ${words.length} valid words after filtering`);
+
+  if (words.length === 0) {
+    console.warn("⚠️ No valid words found after filtering - text might be too short or only contains stopwords");
+    // Try with less strict filtering
+    const allWords = text
+      .split(/\s+/)
+      .map(cleanWord)
+      .filter((w) => w && w.length > 0);
+    console.log(`📝 Trying with less strict filtering: ${allWords.length} words`);
+    
+    if (allWords.length === 0) {
+      return [];
+    }
+    
+    // Count all words without stopword filtering
+    const frequencyMap = new Map<string, number>();
+    for (const word of allWords) {
+      if (word && word.length > 1) {
+        frequencyMap.set(word, (frequencyMap.get(word) || 0) + 1);
+      }
+    }
+    
+    const frequencies: KeywordFrequency[] = Array.from(frequencyMap.entries())
+      .map(([word, count]) => ({ word, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, topN);
+    
+    console.log(`✅ Found ${frequencies.length} keywords (with relaxed filtering)`);
+    return frequencies;
+  }
+
+  // Count frequencies
+  const frequencyMap = new Map<string, number>();
+  for (const word of words) {
+    if (word) {
+      frequencyMap.set(word, (frequencyMap.get(word) || 0) + 1);
+    }
+  }
+
+  // Convert to array and sort
+  const frequencies: KeywordFrequency[] = Array.from(frequencyMap.entries())
+    .map(([word, count]) => ({ word, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, topN);
+
+  console.log(`✅ Found ${frequencies.length} keywords`);
+  return frequencies;
 }
 
 // ============================================================================
@@ -347,19 +649,58 @@ export async function getKeywordFrequencies(
 export async function generateBookmarks(fileId: string): Promise<Bookmark[]> {
   console.log(`📑 Generating bookmarks for file: ${fileId}`);
   try {
-    const buffer = await getPdfBuffer(fileId);
-    console.log(`✅ Got PDF buffer: ${buffer.length} bytes`);
+    // Try to get text from database chunks first (faster if available)
+    console.log("📦 Getting text from database chunks (full uploaded file only)...");
+    let { text, numPages } = await getTextFromChunks(fileId);
     
-    const { numPages, pageTexts } = await extractTextFromPdf(buffer);
-    console.log(`✅ Extracted ${numPages} pages, ${pageTexts.length} page texts`);
+    // If no chunks found, extract directly from PDF file
+    if (!text || text.trim().length === 0) {
+      console.warn("⚠️ No chunks found in database - extracting directly from PDF file...");
+      try {
+        const { buffer, fileType } = await getFileBuffer(fileId);
+        const extracted = await extractTextFromFile(buffer, fileType);
+        text = extracted.text;
+        numPages = extracted.numPages;
+        console.log(`✅ Extracted text directly from file: ${text.length} chars, ${numPages} pages`);
+      } catch (extractError) {
+        console.error("❌ Error extracting text from file:", extractError);
+        // Return default bookmarks if extraction fails
+        return [{
+          title: `Page 1`,
+          page: 1,
+        }];
+      }
+    } else {
+      console.log(`✅ Using text from chunks: ${text.length} chars, ${numPages} pages`);
+    }
+    
+    // Create page texts from text
+    const lines = text.split('\n');
+    const linesPerPage = Math.ceil(lines.length / numPages);
+    const pageTexts: string[] = [];
+    for (let i = 0; i < numPages; i++) {
+      const start = i * linesPerPage;
+      const end = Math.min((i + 1) * linesPerPage, lines.length);
+      pageTexts.push(lines.slice(start, end).join('\n') || "");
+    }
+    
+    return generateBookmarksFromText(text, numPages, pageTexts);
 
-    const bookmarks: Bookmark[] = [];
+  } catch (error) {
+    console.error("❌ Error in generateBookmarks:", error);
+    throw error;
+  }
+}
 
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      const pageText = pageTexts[pageNum - 1] || "";
-      
-      // Extract first non-empty line
-      const lines = pageText
+// Helper function to generate bookmarks from text
+function generateBookmarksFromText(text: string, numPages: number, pageTexts: string[]): Bookmark[] {
+  const bookmarks: Bookmark[] = [];
+
+  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+    const pageText = pageTexts[pageNum - 1] || "";
+    
+    // Extract first non-empty line
+    const lines = pageText
       .split(/\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
@@ -375,7 +716,15 @@ export async function generateBookmarks(fileId: string): Promise<Bookmark[]> {
       }
     }
 
-    // If no meaningful line found, use a default title
+    // If no meaningful line found, try to get first sentence or first 50 chars
+    if (!title && pageText.trim().length > 0) {
+      const firstSentence = pageText.trim().split(/[.!?]/)[0] || pageText.trim().substring(0, 50);
+      if (firstSentence.trim().length >= 3) {
+        title = firstSentence.trim();
+      }
+    }
+
+    // If still no title, use a default title
     if (!title) {
       title = `Page ${pageNum}`;
     } else {
@@ -394,9 +743,5 @@ export async function generateBookmarks(fileId: string): Promise<Bookmark[]> {
 
   console.log(`✅ Generated ${bookmarks.length} bookmarks`);
   return bookmarks;
-  } catch (error) {
-    console.error("❌ Error in generateBookmarks:", error);
-    throw error;
-  }
 }
 

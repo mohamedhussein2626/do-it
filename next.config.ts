@@ -17,8 +17,8 @@ const nextConfig: NextConfig = {
     
     // Ensure pdf-parse and its dependencies work properly
     if (isServer) {
-      config.externals = config.externals || [];
-      // Don't externalize pdf-parse, let it bundle
+      // Don't externalize pdf-parse - bundle it for production compatibility
+      // This ensures it works in both dev and production
       
       // Polyfill browser APIs that pdf-parse might need
       config.resolve.fallback = {
@@ -27,20 +27,17 @@ const nextConfig: NextConfig = {
         encoding: false,
       };
       
-      // Inject polyfills before pdf-parse loads
-      // This ensures DOMMatrix is available when pdfjs-dist loads
-      config.plugins = config.plugins || [];
-      config.plugins.push(
-        new webpack.ProvidePlugin({
-          // This will be handled by the dom-polyfills.ts import
-        })
-      );
+      // Ensure pdf-parse can be resolved correctly
+      config.resolve.alias = {
+        ...config.resolve.alias,
+      };
     }
     
     return config;
   },
   // Ensure proper handling of native modules
-  serverExternalPackages: ['pdf-parse'],
+  // Don't externalize pdf-parse - let Next.js bundle it for better compatibility
+  // serverExternalPackages: ['pdf-parse'],
   // Increase body size limit for large file uploads
   experimental: {
     serverActions: {

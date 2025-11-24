@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 // Import polyfills FIRST before any pdf-parse usage
-import "@/lib/dom-polyfills";
+import "@/lib/init-polyfills";
 import { getReadingInsights } from "@/lib/pdf-tools";
 
 export const maxDuration = 60;
@@ -22,12 +22,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(insights);
   } catch (error) {
     console.error("Error getting reading insights:", error);
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to get reading insights",
-      },
-      { status: 500 }
-    );
+    console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
+    
+    // Return default values instead of error to prevent UI from breaking
+    return NextResponse.json({
+      totalWordCount: 0,
+      totalCharacterCount: 0,
+      totalPages: 1,
+      estimatedReadingTime: 0,
+      averageWordsPerPage: 0,
+      error: error instanceof Error ? error.message : "Failed to get reading insights",
+    });
   }
 }
 

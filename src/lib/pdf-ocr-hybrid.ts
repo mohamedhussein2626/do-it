@@ -5,7 +5,8 @@
  */
 
 // Import polyfills FIRST before any pdf-parse usage
-import "./dom-polyfills";
+import "./init-polyfills";
+import { configurePdfjsWorker } from "./pdf-worker-utils";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -88,6 +89,53 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
     
     console.log(`📄 PDF buffer size: ${pdfBuffer.length} bytes, header: ${header}`);
     
+    // Try using pdfjs-dist first for accurate page count
+    try {
+      // Try legacy build first (no worker needed)
+      let pdfjs;
+      try {
+        pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+      } catch {
+        // Fallback to regular build
+        pdfjs = await import('pdfjs-dist');
+      }
+      
+      configurePdfjsWorker(pdfjs, "pdfjs-dist(metadata)");
+      
+      const uint8Array = new Uint8Array(pdfBuffer);
+      
+      // Load PDF document
+      const loadingTask = pdfjs.getDocument({ 
+        data: uint8Array,
+        verbosity: 0,
+      });
+      
+      const pdfDoc = await loadingTask.promise;
+      const numPages = pdfDoc.numPages;
+      
+      console.log(`✅ Got accurate page count from pdfjs-dist: ${numPages} pages`);
+      
+      // Get metadata if available
+      try {
+        const metadata = await pdfDoc.getMetadata();
+        return {
+          numPages,
+          info: metadata?.info || {},
+          metadata: metadata?.metadata || undefined,
+        };
+      } catch {
+        return {
+          numPages,
+          info: {},
+          metadata: undefined,
+        };
+      }
+    } catch (pdfjsError) {
+      console.warn(`⚠️ pdfjs-dist metadata extraction failed, falling back to pdf-parse:`, 
+        pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError));
+    }
+    
+    // Fallback to pdf-parse
     const parseFn = await getPdfParseFunction();
     if (!parseFn) {
       throw new Error("pdf-parse function is not available");
@@ -258,17 +306,74 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
 
 // Cache for parsed PDF data to avoid re-parsing
 let cachedPdfData: { buffer: Buffer; data: PdfParseResult } | null = null;
+// Cache for pdfjs-dist document to avoid re-loading
+let cachedPdfJsDoc: { buffer: Buffer; doc: any } | null = null;
 
 /**
- * Extract text from a specific page
- * Note: pdf-parse extracts all text from the PDF at once.
- * We cache the parsed result and return all text for compatibility.
+ * Extract text from a specific page using pdfjs-dist for per-page extraction
+ * Falls back to pdf-parse if pdfjs-dist fails
  */
 async function extractTextByPage(
   pdfBuffer: Buffer,
   pageNum: number
 ): Promise<string> {
   try {
+    // Try using pdfjs-dist first for per-page extraction
+    // Use legacy build which works better server-side
+    try {
+      // Try legacy build first (no worker needed)
+      let pdfjs;
+      try {
+        pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+      } catch {
+        // Fallback to regular build
+        pdfjs = await import('pdfjs-dist');
+      }
+      
+      configurePdfjsWorker(pdfjs, "pdfjs-dist(per-page)");
+      
+      // Check cache for pdfjs document
+      let pdfDoc;
+      if (cachedPdfJsDoc && cachedPdfJsDoc.buffer === pdfBuffer) {
+        pdfDoc = cachedPdfJsDoc.doc;
+      } else {
+        // Convert Buffer to Uint8Array (pdfjs-dist requires Uint8Array)
+        const uint8Array = new Uint8Array(pdfBuffer);
+        
+        // Load the PDF document - legacy build doesn't need worker config
+        const loadingTask = pdfjs.getDocument({ 
+          data: uint8Array,
+          verbosity: 0, // Reduce logging
+        });
+        pdfDoc = await loadingTask.promise;
+        
+        // Cache the document
+        cachedPdfJsDoc = { buffer: pdfBuffer, doc: pdfDoc };
+      }
+      
+      // Get the specific page (pageNum is 1-indexed, pdfjs uses 1-indexed)
+      const page = await pdfDoc.getPage(pageNum);
+      
+      // Extract text content from the page
+      const textContent = await page.getTextContent();
+      
+      // Combine all text items from the page
+      const pageText = textContent.items
+        .map((item: any) => item.str || '')
+        .join(' ');
+      
+      console.log(`📄 Extracted ${pageText.length} characters from page ${pageNum} using pdfjs-dist`);
+      
+      if (pageText && pageText.trim().length > 0) {
+        return pageText;
+      }
+    } catch (pdfjsError) {
+      console.warn(`⚠️ pdfjs-dist extraction failed for page ${pageNum}, falling back to pdf-parse:`, 
+        pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError));
+    }
+    
+    // Fallback: Use pdf-parse to extract all text, then split by pages
+    // This is not ideal but works when pdfjs-dist fails
     const parseFn = await getPdfParseFunction();
     if (!parseFn) {
       console.error(`pdf-parse function not available for page ${pageNum}`);
@@ -276,34 +381,74 @@ async function extractTextByPage(
     }
     
     // Check cache to avoid re-parsing the same PDF
-    if (cachedPdfData && cachedPdfData.buffer === pdfBuffer) {
-      const cachedText = cachedPdfData.data.text || "";
-      if (cachedText) {
-        return cachedText;
-      }
-    }
-    
-    // Parse the PDF - pdf-parse extracts all text at once
-    const data = await parseFn(pdfBuffer);
-    
-    // Cache the result
-    cachedPdfData = { buffer: pdfBuffer, data };
-    
-    // Extract text - check multiple possible locations
     let extractedText = "";
-    if (typeof data.text === 'string') {
-      extractedText = data.text;
-    } else if (data.doc && typeof data.doc === 'object') {
-      // If we have a doc object, try to extract text from it
-      const doc = data.doc as Record<string, unknown>;
-      if (typeof doc.text === 'string') {
-        extractedText = doc.text;
+    let totalPages = 1;
+    
+    if (cachedPdfData && cachedPdfData.buffer === pdfBuffer) {
+      extractedText = cachedPdfData.data.text || "";
+      totalPages = cachedPdfData.data.numPages || cachedPdfData.data.numpages || 1;
+      console.log(`📦 Using cached pdf-parse data: ${extractedText.length} chars, ${totalPages} pages`);
+    } else {
+      // Parse the PDF - pdf-parse extracts all text at once
+      try {
+        console.log(`📦 Parsing PDF with pdf-parse (for page ${pageNum})...`);
+        const data = await parseFn(pdfBuffer);
+        
+        // Cache the result
+        cachedPdfData = { buffer: pdfBuffer, data };
+        
+        console.log(`📊 pdf-parse result keys: ${Object.keys(data).join(', ')}`);
+        console.log(`📊 Has text: ${typeof data.text === 'string'}, Has doc: ${!!data.doc}`);
+        
+        // Extract text - check multiple possible locations
+        if (typeof data.text === 'string' && data.text.length > 0) {
+          extractedText = data.text;
+          console.log(`✅ Found text in data.text: ${extractedText.length} chars`);
+        } else if (data.doc && typeof data.doc === 'object') {
+          const doc = data.doc as Record<string, unknown>;
+          console.log(`📦 Doc keys: ${Object.keys(doc).join(', ')}`);
+          if (typeof doc.text === 'string' && doc.text.length > 0) {
+            extractedText = doc.text;
+            console.log(`✅ Found text in doc.text: ${extractedText.length} chars`);
+          }
+        }
+        
+        totalPages = data.numPages || data.numpages || 1;
+        console.log(`📄 Total pages from pdf-parse: ${totalPages}`);
+        
+        // If still no text, the PDF might be image-only
+        if (!extractedText || extractedText.trim().length === 0) {
+          console.warn(`⚠️ pdf-parse returned no text - PDF might be image-only (scanned)`);
+          console.warn(`📊 Data structure:`, JSON.stringify({
+            hasText: typeof data.text === 'string',
+            textLength: typeof data.text === 'string' ? data.text.length : 0,
+            hasDoc: !!data.doc,
+            keys: Object.keys(data),
+          }, null, 2));
+        }
+      } catch (parseError) {
+        console.error(`❌ pdf-parse failed:`, parseError);
+        console.error(`❌ Error details:`, parseError instanceof Error ? parseError.stack : String(parseError));
+        return "";
       }
     }
     
-    console.log(`📄 Extracted ${extractedText.length} characters from PDF (page ${pageNum})`);
+    if (!extractedText || extractedText.trim().length === 0) {
+      console.warn(`⚠️ No text extracted from PDF for page ${pageNum} - returning empty string`);
+      return "";
+    }
     
-    return extractedText;
+    // If we have all text, try to split it by pages intelligently
+    // Estimate words per page and split accordingly
+    const words = extractedText.split(/\s+/).filter(w => w.length > 0);
+    const wordsPerPage = Math.ceil(words.length / totalPages);
+    const startWord = (pageNum - 1) * wordsPerPage;
+    const endWord = Math.min(pageNum * wordsPerPage, words.length);
+    const pageText = words.slice(startWord, endWord).join(' ');
+    
+    console.log(`📄 Extracted ${pageText.length} characters from page ${pageNum} using pdf-parse (split method, total: ${extractedText.length} chars, ${totalPages} pages)`);
+    
+    return pageText;
   } catch (error) {
     console.error(`Error extracting text from page ${pageNum}:`, error);
     return "";
