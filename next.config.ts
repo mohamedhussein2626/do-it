@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -17,6 +20,7 @@ const nextConfig: NextConfig = {
     
     // Ensure pdf-parse and its dependencies work properly
     if (isServer) {
+      const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
       // Don't externalize pdf-parse - bundle it for production compatibility
       // This ensures it works in both dev and production
       
@@ -30,6 +34,7 @@ const nextConfig: NextConfig = {
       // Ensure pdf-parse can be resolved correctly
       config.resolve.alias = {
         ...config.resolve.alias,
+        "pdf.worker.js": workerPath,
       };
     }
     

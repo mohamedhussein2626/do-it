@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+  DialogTitle,
+} from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Expand, Loader2 } from "lucide-react";
 import SimpleBar from "simplebar-react";
@@ -9,6 +14,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import { useResizeDetector } from "react-resize-detector";
 import { toast } from "sonner";
 import { initializePdfWorker } from "@/lib/pdfjs-worker";
+import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 
 interface PdfFullscreenProps {
   fileUrl: string;
@@ -50,6 +56,9 @@ const PdfFullscreen = ({ fileUrl }: PdfFullscreenProps) => {
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-7xl w-full">
+        <VisuallyHidden.Root>
+          <DialogTitle>Fullscreen PDF preview</DialogTitle>
+        </VisuallyHidden.Root>
         <SimpleBar autoHide={false} className="max-h-[calc(100vh-10rem)] mt-6">
           <div ref={ref}>
             {!workerReady ? (

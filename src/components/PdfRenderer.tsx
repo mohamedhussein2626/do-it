@@ -30,7 +30,6 @@ import {
 } from "./ui/dropdown-menu";
 
 import SimpleBar from "simplebar-react";
-import PdfFullscreen from "./PdfFullscreen";
 import { useEffect, useMemo } from "react";
 import { initializePdfWorker } from "@/lib/pdfjs-worker";
 
@@ -198,7 +197,6 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
             <RotateCw className="h-4 w-4" />
           </Button>
 
-          <PdfFullscreen fileUrl={url} />
         </div>
       </div>
 
