@@ -11,36 +11,17 @@ import "./dom-polyfills";
 
 // CRITICAL: Intercept worker require calls for pdfjs-dist
 // This prevents "Cannot find module 'pdf.worker.js'" errors in production
+// Note: This is a best-effort polyfill - webpack aliases handle most cases
 if (typeof require !== 'undefined' && typeof global !== 'undefined') {
-  const originalRequire = require;
-  const globalScope = global as { require?: typeof require; [key: string]: unknown };
-  
-  // Create a custom require that intercepts worker module requests
-  const customRequire = (id: string) => {
-    // Intercept pdf.worker.js requires
-    if (id === 'pdf.worker.js' || id === './pdf.worker.js' || id.endsWith('pdf.worker.js')) {
-      console.log(`[worker-polyfill] Intercepted worker require: ${id}`);
-      // Return a no-op worker module
-      return {
-        WorkerMessageHandler: {
-          setup: () => {},
-          on: () => {},
-          send: () => {},
-        },
-      };
-    }
-    // For all other requires, use the original
-    return originalRequire(id);
-  };
-  
-  // Patch require if it's available
   try {
-    // Store original require
+    const globalScope = global as { __originalRequire?: typeof require; [key: string]: unknown };
+    
+    // Store original require for potential future use
     if (!globalScope.__originalRequire) {
-      globalScope.__originalRequire = originalRequire;
+      globalScope.__originalRequire = require;
     }
-    // Note: We can't directly replace require in Node.js, but this helps with some cases
-  } catch (error) {
+    // Note: We can't directly replace require in Node.js/webpack, but webpack aliases handle this
+  } catch {
     // Ignore errors - this is a best-effort polyfill
   }
 }

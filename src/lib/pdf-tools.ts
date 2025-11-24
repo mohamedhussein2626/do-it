@@ -121,7 +121,7 @@ export async function getPdfBuffer(fileId: string): Promise<Buffer> {
 // Helper: Extract Text from Any File Type
 // ============================================================================
 
-async function extractTextFromFile(buffer: Buffer, fileType: string | null): Promise<{
+export async function extractTextFromFile(buffer: Buffer, fileType: string | null): Promise<{
   text: string;
   numPages: number;
   pageTexts: string[]; // Text for each page

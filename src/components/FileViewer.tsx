@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import PdfRenderer from "@/components/PdfRenderer";
 import TextContentViewer from "@/components/TextContentViewer";
 import { FileText, Download } from "lucide-react";
 import { Button } from "./ui/button";
