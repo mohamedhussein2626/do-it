@@ -7,7 +7,7 @@
 // Import polyfills FIRST before any pdf-parse usage
 import "./init-polyfills";
 import { configurePdfjsWorker } from "./pdf-worker-utils";
-import type { PDFDocumentProxy, TextContentItem } from "pdfjs-dist/types/src/display/api";
+import type { PDFDocumentProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -360,7 +360,7 @@ async function extractTextByPage(
       
       // Combine all text items from the page
       const pageText = textContent.items
-        .map((item: TextContentItem) => ("str" in item ? item.str : ""))
+        .map((item) => (isTextItem(item) ? item.str : ""))
         .join(' ');
       
       console.log(`📄 Extracted ${pageText.length} characters from page ${pageNum} using pdfjs-dist`);
@@ -491,6 +491,10 @@ async function getPageScreenshot(
     console.error(`Error taking screenshot of page ${pageNum}:`, error);
     return null;
   }
+}
+
+function isTextItem(item: unknown): item is TextItem {
+  return typeof item === "object" && !!item && "str" in item && typeof (item as Record<string, unknown>).str === "string";
 }
 
 /**
