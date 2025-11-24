@@ -77,7 +77,7 @@ export async function loadPdfParse(): Promise<PdfParseFunction> {
       // Strategy 2: Try with explicit .default for ESM modules
       try {
         const pdfParseImport = await import("pdf-parse");
-        pdfParseModule = (pdfParseImport.default || pdfParseImport) as PdfParseModule;
+        pdfParseModule = ((pdfParseImport as { default?: PdfParseModule }).default ?? pdfParseImport) as PdfParseModule;
         console.log("✅ Loaded pdf-parse via .default import()");
       } catch (defaultImportError) {
         errors.push(`default import failed: ${formatError(defaultImportError)}`);
