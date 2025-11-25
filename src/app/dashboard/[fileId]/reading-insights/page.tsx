@@ -288,7 +288,7 @@ export default function ReadingInsightsPage({
                 <h2 className="font-semibold text-gray-900">Document Preview</h2>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <FileViewer file={file} />
+                <FileViewer file={file} showFullText={true} />
               </div>
             </div>
           </div>

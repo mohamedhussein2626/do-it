@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import PdfRenderer from "@/components/PdfRenderer";
 import TextContentViewer from "@/components/TextContentViewer";
 import { FileText, Download } from "lucide-react";
 import { Button } from "./ui/button";
@@ -15,9 +16,10 @@ interface FileViewerProps {
     fileType: string | null;
     name: string;
   };
+  showFullText?: boolean; // If true, show full text content (for tools). If false, use PDF renderer (for chat bot)
 }
 
-const FileViewer: React.FC<FileViewerProps> = ({ file }) => {
+const FileViewer: React.FC<FileViewerProps> = ({ file, showFullText = false }) => {
   const isPDF = file.fileType === "application/pdf";
   const isWord = 
     file.fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -26,10 +28,15 @@ const FileViewer: React.FC<FileViewerProps> = ({ file }) => {
   const isMarkdown = file.fileType === "text/markdown";
   const isImage = file.fileType?.startsWith("image/");
 
-  // For PDF files, show full text content (like Word files)
-  // This ensures all tools work properly with full content
+  // For PDF files: 
+  // - If showFullText is true (tools pages), show full text content
+  // - If showFullText is false (chat bot), use PDF renderer with page navigation
   if (isPDF) {
-    return <TextContentViewer file={file} />;
+    if (showFullText) {
+      return <TextContentViewer file={file} />;
+    } else {
+      return <PdfRenderer url={getAbsoluteFileUrl(file.url, file.key)} />;
+    }
   }
 
   // For Word files, show content viewer

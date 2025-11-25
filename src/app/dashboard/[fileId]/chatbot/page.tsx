@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import ChatWrapper from "@/components/chat/ChatWrapper";
-import FileViewer from "@/components/FileViewer";
 import PDFSidebar from "@/components/layout/PDFSidebar";
 import { getFileData } from "@/lib/actions";
 import BannedUserProtection from "@/components/BannedUserProtection";
+import PdfRenderer from "@/components/PdfRenderer";
 
 interface FileData {
   id: string;
@@ -77,32 +77,32 @@ export default function ChatbotPage({ params }: ChatbotPageProps) {
 
   return (
     <BannedUserProtection>
-      <div className="flex h-screen">
-      {/* PDF Sidebar */}
-      <PDFSidebar
-        sidebarOpen={true}
-        activeView="chatbot"
-        setActiveView={() => {}}
-        fileId={file.id}
-        setLoading={setLoading}
-        setLoadingMessage={() => {}}
-      />
+    <div className="flex h-screen">
+    {/* PDF Sidebar */}
+    <PDFSidebar
+      sidebarOpen={true}
+      activeView="chatbot"
+      setActiveView={() => {}}
+      fileId={file.id}
+      setLoading={setLoading}
+      setLoadingMessage={() => {}}
+    />
 
-      {/* Main content area - Full width */}
-      <div className="flex-1 flex ml-64">
-        {/* File Viewer - Takes up more space */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 p-6">
-            <FileViewer file={file} />
-          </div>
-        </div>
-
-        {/* Chat Interface - Fixed width */}
-        <div className="w-96 border-l border-gray-200 flex flex-col">
-          <ChatWrapper fileId={file.id} />
+    {/* Main content area - Full width */}
+    <div className="flex-1 flex ml-64">
+      {/* PDF Viewer - Takes up more space */}
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 p-6">
+          <PdfRenderer url={file.url} />
         </div>
       </div>
+
+      {/* Chat Interface - Fixed width */}
+      <div className="w-96 border-l border-gray-200 flex flex-col">
+        <ChatWrapper fileId={file.id} />
+      </div>
     </div>
-    </BannedUserProtection>
+  </div>
+  </BannedUserProtection>
   );
 }
