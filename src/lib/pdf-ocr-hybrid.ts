@@ -741,7 +741,7 @@ export async function processHybridPdf(
     let metadata: PDFInfo;
     try {
       metadata = await withTimeout(getMetadata(pdfBuffer), 30000, "PDF metadata extraction");
-      console.log(`📊 PDF metadata retrieved: ${metadata.numPages} pages`);
+    console.log(`📊 PDF metadata retrieved: ${metadata.numPages} pages`);
     } catch (metadataError) {
       console.warn(`⚠️ Metadata extraction failed/timed out, using defaults:`, metadataError);
       // Use defaults - assume 1 page and continue
