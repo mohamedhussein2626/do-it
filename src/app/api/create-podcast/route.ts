@@ -12,6 +12,9 @@ import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
 import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { Readable } from "stream";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
@@ -25,7 +28,7 @@ async function extractPdfTextFast(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/legacy/build/pdf.worker.js";
+      pdfjs.GlobalWorkerOptions.workerSrc = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
     }
     (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const uint8Array = new Uint8Array(buffer);
@@ -74,7 +77,7 @@ async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/legacy/build/pdf.worker.js";
+      pdfjs.GlobalWorkerOptions.workerSrc = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
     }
     (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const pdfDoc = await pdfjs.getDocument({
