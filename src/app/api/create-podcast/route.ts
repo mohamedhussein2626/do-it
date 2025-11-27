@@ -9,12 +9,44 @@ import {
 } from "@/lib/audio-generation";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
-import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
 import { Readable } from "stream";
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 minutes for PDF processing
+export const maxDuration = 300; // 5 minutes for PDF processing (requires Vercel Pro)
+
+// Fast PDF text extraction using pdf-parse directly (no complex hybrid processing)
+async function extractTextFast(buffer: Buffer): Promise<string> {
+  console.log("🚀 Using fast PDF extraction...");
+  
+  try {
+    // Use pdf-parse directly for speed
+    const { loadPdfParse } = await import("@/lib/pdf-parse-loader");
+    const parseFn = await loadPdfParse();
+    
+    // Add timeout to prevent hanging
+    const parsePromise = parseFn(buffer);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("PDF parsing timed out")), 15000);
+    });
+    
+    const result = await Promise.race([parsePromise, timeoutPromise]);
+    
+    // Extract text from result
+    let text = "";
+    if (typeof result.text === "string") {
+      text = result.text;
+    } else if (result.doc && typeof (result.doc as Record<string, unknown>).text === "string") {
+      text = (result.doc as Record<string, unknown>).text as string;
+    }
+    
+    console.log(`✅ Fast extraction got ${text.length} characters`);
+    return text.trim();
+  } catch (error) {
+    console.error("❌ Fast extraction failed:", error);
+    return "";
+  }
+}
 
 type PodcastSectionInput = {
   title: string;
@@ -136,11 +168,9 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.concat(chunks_buffer);
         console.log(`✅ Fetched PDF from R2: ${buffer.length} bytes`);
 
-        // Extract text using hybrid PDF processor
-        const extractedText = await processHybridPdf(buffer, {
-          extractImageText: false, // Faster extraction without OCR
-          maxPages: 50,
-        });
+        // Extract text using FAST extraction (no complex hybrid processing)
+        // This is much faster for serverless environments
+        const extractedText = await extractTextFast(buffer);
 
         if (extractedText && extractedText.trim()) {
           fileContent = extractedText;
