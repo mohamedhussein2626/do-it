@@ -11,6 +11,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { Readable } from "stream";
+import path from "path";
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
@@ -22,10 +23,10 @@ async function extractPdfTextFast(buffer: Buffer): Promise<string> {
   console.log("🚀 Using ultra-fast PDF extraction (pdfjs-dist legacy)...");
   
   try {
-    // @ts-expect-error: legacy pdf.mjs build has no type declarations but works at runtime
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
+      const workerPath = path.resolve(process.cwd(), "src/lib/noop-pdf-worker.js");
+      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
     }
     (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const uint8Array = new Uint8Array(buffer);
@@ -72,10 +73,10 @@ async function extractPdfTextFast(buffer: Buffer): Promise<string> {
 async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
   console.log("🐢 Using fallback pdfjs extraction...");
   try {
-    // @ts-expect-error: legacy pdf.mjs build has no type declarations but works at runtime
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
+      const workerPath = path.resolve(process.cwd(), "src/lib/noop-pdf-worker.js");
+      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
     }
     (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const pdfDoc = await pdfjs.getDocument({
