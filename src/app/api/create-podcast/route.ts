@@ -239,8 +239,12 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`🔍 Debug: Starting audio generation with ElevenLabs...`);
-      const audioBuffer = await generateAudioFromText(section.content);
+      const audioResult = await generateAudioFromText(section.content);
+      const audioBuffer = audioResult.buffer;
       console.log(`✅ Audio generated, size: ${audioBuffer.length} bytes`);
+      if (audioResult.message) {
+        console.log(`ℹ️ Audio generation note: ${audioResult.message}`);
+      }
 
       if (audioBuffer.length === 0) {
         throw new Error("Generated audio buffer is empty");
