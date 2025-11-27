@@ -9,12 +9,72 @@ import {
 } from "@/lib/audio-generation";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
-import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
 import { Readable } from "stream";
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for PDF processing
+
+// Ultra-fast PDF text extraction using pdfjs-dist legacy build directly
+// This bypasses pdf-parse which hangs in Vercel serverless
+async function extractPdfTextFast(buffer: Buffer): Promise<string> {
+  console.log("🚀 Using ultra-fast PDF extraction (pdfjs-dist legacy)...");
+  
+  try {
+    // Use pdfjs-dist legacy build directly - no worker needed
+    // @ts-expect-error - pdfjs-dist legacy build works at runtime
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    
+    // Disable worker completely
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
+    
+    const uint8Array = new Uint8Array(buffer);
+    
+    // Load with minimal options - no worker, no canvas
+    const loadingTask = pdfjs.getDocument({
+      data: uint8Array,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+    });
+    
+    // Add 10 second timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("PDF load timeout")), 10000);
+    });
+    
+    const pdfDoc = await Promise.race([loadingTask.promise, timeoutPromise]);
+    console.log(`✅ PDF loaded: ${pdfDoc.numPages} pages`);
+    
+    // Extract text from all pages
+    const textParts: string[] = [];
+    const maxPages = Math.min(pdfDoc.numPages, 20); // Limit to 20 pages for speed
+    
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: { str?: string }) => item.str || "")
+          .join(" ");
+        if (pageText.trim()) {
+          textParts.push(`=== Page ${i} ===\n${pageText}`);
+        }
+      } catch (pageError) {
+        console.warn(`⚠️ Failed to extract page ${i}:`, pageError);
+      }
+    }
+    
+    const fullText = textParts.join("\n\n");
+    console.log(`✅ Extracted ${fullText.length} characters from ${maxPages} pages`);
+    return fullText;
+  } catch (error) {
+    console.error("❌ Fast PDF extraction failed:", error);
+    return "";
+  }
+}
 
 type PodcastSectionInput = {
   title: string;
@@ -136,11 +196,8 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.concat(chunks_buffer);
         console.log(`✅ Fetched PDF from R2: ${buffer.length} bytes`);
 
-        // Extract text using hybrid PDF processor
-        const extractedText = await processHybridPdf(buffer, {
-          extractImageText: false, // Faster extraction without OCR
-          maxPages: 50,
-        });
+        // Extract text using FAST extraction (bypasses pdf-parse which hangs in Vercel)
+        const extractedText = await extractPdfTextFast(buffer);
 
         if (extractedText && extractedText.trim()) {
           fileContent = extractedText;
