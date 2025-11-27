@@ -9,12 +9,106 @@ import {
 } from "@/lib/audio-generation";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
-import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { Readable } from "stream";
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for PDF processing
+
+// Ultra-fast PDF text extraction using pdfjs-dist legacy build directly
+// This bypasses pdf-parse which hangs in Vercel serverless
+async function extractPdfTextFast(buffer: Buffer): Promise<string> {
+  console.log("🚀 Using ultra-fast PDF extraction (pdfjs-dist legacy)...");
+  
+  try {
+    // @ts-expect-error: legacy pdf.mjs build has no type declarations but works at runtime
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
+    (pdfjs as { disableWorker?: boolean }).disableWorker = true;
+    const uint8Array = new Uint8Array(buffer);
+    const loadingTask = pdfjs.getDocument({
+      data: uint8Array,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableWorker: true,
+    } as Record<string, unknown>);
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("PDF load timeout")), 30000);
+    });
+    const pdfDoc = await Promise.race([loadingTask.promise, timeoutPromise]);
+    console.log(`✅ PDF loaded: ${pdfDoc.numPages} pages`);
+    
+    const textParts: string[] = [];
+    const maxPages = Math.min(pdfDoc.numPages, 20);
+    
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageItems = textContent.items as Array<TextItem>;
+        const pageText = pageItems.map((item) => item.str ?? "").join(" ");
+        if (pageText.trim()) {
+          textParts.push(`=== Page ${i} ===\n${pageText}`);
+        }
+      } catch (pageError) {
+        console.warn(`⚠️ Failed to extract page ${i}:`, pageError);
+      }
+    }
+    
+    const fullText = textParts.join("\n\n");
+    console.log(`✅ Extracted ${fullText.length} characters from ${maxPages} pages`);
+    return fullText;
+  } catch (error) {
+    console.error("❌ Fast PDF extraction failed:", error);
+    throw error;
+  }
+}
+
+async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
+  console.log("🐢 Using fallback pdfjs extraction...");
+  try {
+    // @ts-expect-error: legacy pdf.mjs build has no type declarations but works at runtime
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
+    (pdfjs as { disableWorker?: boolean }).disableWorker = true;
+    const pdfDoc = await pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableWorker: true,
+    } as Record<string, unknown>).promise;
+    
+    const textParts: string[] = [];
+    const maxPages = Math.min(pdfDoc.numPages, 75);
+    
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageItems = textContent.items as Array<TextItem>;
+        const pageText = pageItems.map((item) => item.str ?? "").join(" ");
+        if (pageText.trim()) {
+          textParts.push(`=== Page ${i} ===\n${pageText}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Slow fallback failed on page ${i}:`, error);
+      }
+    }
+    
+    return textParts.join("\n\n");
+  } catch (error) {
+    console.error("❌ Fallback pdfjs extraction failed:", error);
+    return "";
+  }
+}
 
 type PodcastSectionInput = {
   title: string;
@@ -136,11 +230,18 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.concat(chunks_buffer);
         console.log(`✅ Fetched PDF from R2: ${buffer.length} bytes`);
 
-        // Extract text using hybrid PDF processor
-        const extractedText = await processHybridPdf(buffer, {
-          extractImageText: false, // Faster extraction without OCR
-          maxPages: 50,
-        });
+        // Extract text using fast extraction (bypasses pdf-parse which hangs in Vercel)
+        let extractedText = "";
+        try {
+          extractedText = await extractPdfTextFast(buffer);
+        } catch (fastError) {
+          console.warn("⚠️ Fast extraction threw error, trying fallback...", fastError);
+        }
+
+        if (!extractedText || extractedText.trim().length === 0) {
+          console.warn("⚠️ Fast extraction returned no text, using slow fallback...");
+          extractedText = await extractPdfTextFallback(buffer);
+        }
 
         if (extractedText && extractedText.trim()) {
           fileContent = extractedText;
@@ -239,8 +340,12 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`🔍 Debug: Starting audio generation with ElevenLabs...`);
-      const audioBuffer = await generateAudioFromText(section.content);
+      const audioResult = await generateAudioFromText(section.content);
+      const audioBuffer = audioResult.buffer;
       console.log(`✅ Audio generated, size: ${audioBuffer.length} bytes`);
+      if (audioResult.message) {
+        console.log(`ℹ️ Audio generation note: ${audioResult.message}`);
+      }
 
       if (audioBuffer.length === 0) {
         throw new Error("Generated audio buffer is empty");
@@ -352,9 +457,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("Error creating podcast:", error);
-    return NextResponse.json(
+        return NextResponse.json(
       { error: "Failed to create podcast" },
       { status: 500 },
-    );
+      );
   }
 }
