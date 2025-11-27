@@ -10,11 +10,102 @@ import {
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
 import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { Readable } from "stream";
 
 // Force Node.js runtime for PDF processing
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for PDF processing
+
+// Ultra-fast PDF text extraction using pdfjs-dist legacy build directly
+// This bypasses pdf-parse which hangs in Vercel serverless
+async function extractPdfTextFast(buffer: Buffer): Promise<string> {
+  console.log("🚀 Using ultra-fast PDF extraction (pdfjs-dist legacy)...");
+  
+  try {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
+    const uint8Array = new Uint8Array(buffer);
+    const loadingTask = pdfjs.getDocument({
+      data: uint8Array,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableWorker: true,
+    } as Record<string, unknown>);
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("PDF load timeout")), 30000);
+    });
+    const pdfDoc = await Promise.race([loadingTask.promise, timeoutPromise]);
+    console.log(`✅ PDF loaded: ${pdfDoc.numPages} pages`);
+    
+    const textParts: string[] = [];
+    const maxPages = Math.min(pdfDoc.numPages, 20);
+    
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageItems = textContent.items as Array<TextItem>;
+        const pageText = pageItems.map((item) => item.str ?? "").join(" ");
+        if (pageText.trim()) {
+          textParts.push(`=== Page ${i} ===\n${pageText}`);
+        }
+      } catch (pageError) {
+        console.warn(`⚠️ Failed to extract page ${i}:`, pageError);
+      }
+    }
+    
+    const fullText = textParts.join("\n\n");
+    console.log(`✅ Extracted ${fullText.length} characters from ${maxPages} pages`);
+    return fullText;
+  } catch (error) {
+    console.error("❌ Fast PDF extraction failed:", error);
+    throw error;
+  }
+}
+
+async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
+  console.log("🐢 Using fallback pdfjs extraction...");
+  try {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
+    const pdfDoc = await pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false,
+      disableWorker: true,
+    } as Record<string, unknown>).promise;
+    
+    const textParts: string[] = [];
+    const maxPages = Math.min(pdfDoc.numPages, 75);
+    
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageItems = textContent.items as Array<TextItem>;
+        const pageText = pageItems.map((item) => item.str ?? "").join(" ");
+        if (pageText.trim()) {
+          textParts.push(`=== Page ${i} ===\n${pageText}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Slow fallback failed on page ${i}:`, error);
+      }
+    }
+    
+    return textParts.join("\n\n");
+  } catch (error) {
+    console.error("❌ Fallback pdfjs extraction failed:", error);
+    return "";
+  }
+}
 
 type PodcastSectionInput = {
   title: string;
@@ -136,11 +227,18 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.concat(chunks_buffer);
         console.log(`✅ Fetched PDF from R2: ${buffer.length} bytes`);
 
-        // Extract text using hybrid PDF processor
-        const extractedText = await processHybridPdf(buffer, {
-          extractImageText: false, // Faster extraction without OCR
-          maxPages: 50,
-        });
+        // Extract text using fast extraction (bypasses pdf-parse which hangs in Vercel)
+        let extractedText = "";
+        try {
+          extractedText = await extractPdfTextFast(buffer);
+        } catch (fastError) {
+          console.warn("⚠️ Fast extraction threw error, trying fallback...", fastError);
+        }
+
+        if (!extractedText || extractedText.trim().length === 0) {
+          console.warn("⚠️ Fast extraction returned no text, using slow fallback...");
+          extractedText = await extractPdfTextFallback(buffer);
+        }
 
         if (extractedText && extractedText.trim()) {
           fileContent = extractedText;
@@ -201,12 +299,12 @@ export async function POST(request: NextRequest) {
         fileId,
         title: `${file.name} - Audio Version`,
         description: `Audio version of ${file.name}`,
-        totalDuration: "0:00", 
+        totalDuration: "0:00", // Will be calculated after audio generation
         userId: user.id,
       },
     });
 
-    // Create sections
+    // Create sections in database
     const createdSections = await Promise.all(
       sections.map(async (section: PodcastSectionInput, index: number) => {
         return await db.podcastSection.create({
@@ -222,62 +320,125 @@ export async function POST(request: NextRequest) {
       }),
     );
 
-    // Generate audio for the first section
-    const section = createdSections[0];
+    // Generate audio for the single section
+    const section = createdSections[0]; // Get the single section
     let audioUrl = null;
 
     try {
       console.log(`🎙️ Generating audio for: ${section.title}`);
       console.log(`📝 Content length: ${section.content.length} characters`);
+      console.log(
+        `📝 Content preview: ${section.content.substring(0, 200)}...`,
+      );
 
+      // Check if we have valid content
       if (!section.content || section.content.trim().length === 0) {
         throw new Error("No content to convert to audio");
       }
 
       console.log(`🔍 Debug: Starting audio generation with ElevenLabs...`);
+      const audioResult = await generateAudioFromText(section.content);
+      const audioBuffer = audioResult.buffer;
+      console.log(`✅ Audio generated, size: ${audioBuffer.length} bytes`);
+      if (audioResult.message) {
+        console.log(`ℹ️ Audio generation note: ${audioResult.message}`);
+      }
 
-      // ✅ FIXED HERE
-      const { buffer } = await generateAudioFromText(section.content);
-
-      console.log(`✅ Audio generated, size: ${buffer.length} bytes`);
-
-      if (buffer.length === 0) {
+      if (audioBuffer.length === 0) {
         throw new Error("Generated audio buffer is empty");
       }
 
-      const filename = `${podcast.id}-${section.id}.wav`;
+      console.log(
+        `🔍 Debug: Audio buffer is valid, size: ${audioBuffer.length} bytes`,
+      );
 
-      audioUrl = await uploadAudio(buffer, filename, user.id);
+      // Use the old UUID-based format for now to ensure compatibility
+      const filename = `${podcast.id}-${section.id}.wav`;
+      console.log(`🔍 Debug: Saving audio file as: ${filename}`);
+
+      audioUrl = await uploadAudio(audioBuffer, filename, user.id);
       console.log(`✅ Audio uploaded to: ${audioUrl}`);
 
-      // Update section
+      // Verify the file was actually created
+      const { existsSync } = await import("fs");
+      const { join } = await import("path");
+      const filePath = join(
+        process.cwd(),
+        "public",
+        "uploads",
+        "audio",
+        filename,
+      );
+      const fileExists = existsSync(filePath);
+      console.log(`🔍 Debug: Audio file exists on disk: ${fileExists}`);
+      console.log(`🔍 Debug: File path: ${filePath}`);
+
+      // Update section with audio URL - section already exists, so just update
       await db.podcastSection.update({
         where: { id: section.id },
         data: { audioUrl },
       });
 
+      console.log(`✅ Section updated with audio URL: ${audioUrl}`);
     } catch (error: unknown) {
-      console.error(`❌ Error generating audio:`, error);
+      console.error(
+        `❌ Error generating audio for section ${section.id}:`,
+        error,
+      );
+      console.error(
+        `❌ Error details:`,
+        error instanceof Error ? error.message : error,
+      );
 
+      // Create a fallback URL but log that it's not real
       const filename = `${podcast.id}-${section.id}.wav`;
       audioUrl = `/api/audio/${filename}`;
+      console.log(`⚠️ Using fallback URL: ${audioUrl} (no actual audio file)`);
 
-      await db.podcastSection.update({
-        where: { id: section.id },
-        data: { audioUrl },
-      });
+      // Update section with fallback URL - section already exists, so just update
+      try {
+        await db.podcastSection.update({
+          where: { id: section.id },
+          data: { audioUrl },
+        });
+        console.log(`✅ Section updated with fallback URL: ${audioUrl}`);
+      } catch (dbError: unknown) {
+        console.error(`❌ Database error updating section:`, dbError);
+        // Continue without updating the database
+      }
     }
 
-    // Calculate duration
+    // Calculate total duration based on actual content length
+    // Estimate: ~150 words per minute for speech
     const words = section.content.split(" ").length;
-    const estimatedMinutes = words / 150;
+    const estimatedMinutes = words / 150; // words per minute
     const totalDurationSeconds = estimatedMinutes * 60;
+    console.log(
+      `Content: ${words} words, estimated duration: ${estimatedMinutes.toFixed(1)} minutes`,
+    );
 
-    await db.podcast.update({
-      where: { id: podcast.id },
-      data: { totalDuration: formatDuration(totalDurationSeconds) },
-    });
+    // Update podcast with calculated duration - verify podcast still exists
+    try {
+      const podcastExists = await db.podcast.findUnique({
+        where: { id: podcast.id },
+      });
+      
+      if (podcastExists) {
+        await db.podcast.update({
+          where: { id: podcast.id },
+          data: {
+            totalDuration: formatDuration(totalDurationSeconds),
+          },
+        });
+      } else {
+        console.error(`❌ Podcast ${podcast.id} was deleted before update`);
+      }
+    } catch (updateError: unknown) {
+      console.error(`❌ Error updating podcast duration:`, updateError);
+      // Continue - duration is not critical
+    }
 
+    // Return the podcast with the single section
     const finalSection = {
       ...section,
       audioUrl: audioUrl || `/api/audio/${podcast.id}-${section.id}.wav`,
@@ -291,12 +452,11 @@ export async function POST(request: NextRequest) {
         totalDuration: formatDuration(totalDurationSeconds),
       },
     });
-
   } catch (error: unknown) {
     console.error("Error creating podcast:", error);
-    return NextResponse.json(
+        return NextResponse.json(
       { error: "Failed to create podcast" },
       { status: 500 },
-    );
+      );
   }
 }
