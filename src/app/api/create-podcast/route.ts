@@ -23,8 +23,8 @@ async function extractPdfTextFast(buffer: Buffer): Promise<string> {
   
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
-    const noopWorker = await import("@/lib/noop-pdf-worker.js");
-    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = noopWorker;
+    const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.js");
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = workerModule;
     if (pdfjs.GlobalWorkerOptions) {
       pdfjs.GlobalWorkerOptions.workerSrc = "";
     }
@@ -74,8 +74,8 @@ async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
   console.log("🐢 Using fallback pdfjs extraction...");
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
-    const noopWorker = await import("@/lib/noop-pdf-worker.js");
-    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = noopWorker;
+    const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.js");
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = workerModule;
     if (pdfjs.GlobalWorkerOptions) {
       pdfjs.GlobalWorkerOptions.workerSrc = "";
     }

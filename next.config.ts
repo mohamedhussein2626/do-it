@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
     }
     
     // Ensure pdf-parse and its dependencies work properly
-    if (isServer) {
+    if (!isServer) {
       try {
         const path = require("path");
         const noopWorkerPath = path.resolve(__dirname, "src/lib/noop-pdf-worker.js");
