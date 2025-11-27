@@ -21,9 +21,6 @@ import {
   CheckSquare,
   AlertTriangle,
   Shield,
-  BarChart3,
-  Search,
-  BookOpen,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MainSidebar from "./layout/MainSidebar";
@@ -257,30 +254,7 @@ const Dashboard = () => {
       iconColor: "text-emerald-600",
       bgColor: "bg-emerald-100",
     },
-    {
-      id: "reading-insights",
-      title: "Reading Insights",
-      description: "Analyze document statistics",
-      icon: BarChart3,
-      iconColor: "text-blue-600",
-      bgColor: "bg-blue-100",
-    },
-    {
-      id: "keyword-finder",
-      title: "Keyword Finder",
-      description: "Find most frequent keywords",
-      icon: Search,
-      iconColor: "text-purple-600",
-      bgColor: "bg-purple-100",
-    },
-    {
-      id: "bookmarks",
-      title: "Bookmarks",
-      description: "Auto-generated table of contents",
-      icon: BookOpen,
-      iconColor: "text-indigo-600",
-      bgColor: "bg-indigo-100",
-    },
+   
   ];
 
   const aiWriterActions = [

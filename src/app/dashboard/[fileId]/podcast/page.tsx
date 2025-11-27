@@ -36,7 +36,6 @@ export default function PodcastPage({ params }: PodcastPageProps) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [waitingForGeneration, setWaitingForGeneration] = useState(true);
 
   useEffect(() => {
     const resolveParams = async () => {
@@ -47,35 +46,6 @@ export default function PodcastPage({ params }: PodcastPageProps) {
 
     resolveParams();
   }, [params]);
-
-  // Auto-refresh if podcast not found (in case it's being generated)
-  useEffect(() => {
-    if (!podcast && !loading && fileId && !generating) {
-      console.log("Podcast not found, setting up auto-refresh...");
-      
-      // After 15 seconds, stop showing loading and show generate button
-      const timeout = setTimeout(() => {
-        setWaitingForGeneration(false);
-      }, 15000);
-      
-      const interval = setInterval(async () => {
-        console.log("Auto-refreshing podcast data...");
-        await fetchFileAndPodcastData(fileId);
-      }, 3000); // Check every 3 seconds
-
-      // Stop polling after 60 seconds
-      const stopTimeout = setTimeout(() => {
-        clearInterval(interval);
-        console.log("Stopped auto-refresh after 60 seconds");
-      }, 60000);
-
-      return () => {
-        clearInterval(interval);
-        clearTimeout(timeout);
-        clearTimeout(stopTimeout);
-      };
-    }
-  }, [podcast, loading, fileId, generating]);
 
   const fetchFileAndPodcastData = async (id: string) => {
     try {
@@ -96,9 +66,6 @@ export default function PodcastPage({ params }: PodcastPageProps) {
         setPodcast(null);
       } else {
         setPodcast(podcastData.podcast as PodcastType);
-        if (podcastData.podcast) {
-          setWaitingForGeneration(false);
-        }
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -164,8 +131,7 @@ export default function PodcastPage({ params }: PodcastPageProps) {
     );
   }
 
-  // Show error only for real errors (not "not found" during generation)
-  if (error && !error.includes("not found") && !error.includes("No podcast")) {
+  if (error) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -183,20 +149,7 @@ export default function PodcastPage({ params }: PodcastPageProps) {
     );
   }
 
-  // Show loading state if waiting for generation, otherwise show generate button
   if (!podcast) {
-    if (waitingForGeneration) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-600" />
-            <p className="text-gray-600">Generating podcast...</p>
-            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
-          </div>
-        </div>
-      );
-    }
-    
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

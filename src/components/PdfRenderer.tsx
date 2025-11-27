@@ -30,8 +30,8 @@ import {
 } from "./ui/dropdown-menu";
 
 import SimpleBar from "simplebar-react";
-import PdfFullscreen from "./PdfFullscreen";
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.js`;
+import { useEffect, useMemo } from "react";
+import { initializePdfWorker } from "@/lib/pdfjs-worker";
 
 interface PdfRendererProps {
   url: string;
@@ -43,8 +43,25 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
   const [scale, setScale] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
   const [renderedScale, setRenderedScale] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [workerReady, setWorkerReady] = useState(false);
 
   const isLoading = renderedScale !== scale;
+
+  // Ensure worker is configured on client side - MUST be set before Document renders
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      initializePdfWorker()
+        .then(() => {
+          setWorkerReady(true);
+        })
+        .catch((error) => {
+          console.error("Failed to initialize PDF.js worker:", error);
+          // Set ready anyway - Document will handle errors gracefully
+          setWorkerReady(true);
+        });
+    }
+  }, []);
 
   const CustomPageValidator = z.object({
     page: z
@@ -74,6 +91,28 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
     setCurrPage(Number(page));
     setValue("page", String(page));
   };
+
+  // Memoize file object to prevent re-renders
+  const fileConfig = useMemo(() => ({
+    url: url,
+    httpHeaders: {
+      'Accept': 'application/pdf',
+    },
+    withCredentials: false,
+  }), [url]);
+
+  // Memoize options to prevent re-renders
+  const pdfOptions = useMemo(() => {
+    const version = pdfjs.version || "3.4.120";
+    return {
+      cMapUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/cmaps/`,
+      cMapPacked: true,
+      standardFontDataUrl: `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/standard_fonts/`,
+      // Disable auto fetch to prevent unnecessary requests
+      disableAutoFetch: false,
+      disableStream: false,
+    };
+  }, []);
 
   return (
     <div className="w-full bg-white rounded-md shadow flex flex-col items-center">
@@ -158,27 +197,90 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
             <RotateCw className="h-4 w-4" />
           </Button>
 
-          <PdfFullscreen fileUrl={url} />
         </div>
       </div>
 
       <div className="flex-1 w-full max-h-screen">
         <SimpleBar autoHide={false} className="max-h-[calc(100vh-10rem)]">
           <div ref={ref}>
-            <Document
-              loading={
-                <div className="flex justify-center">
-                  <Loader2 className="my-24 h-6 w-6 animate-spin" />
+            {!workerReady ? (
+              <div className="flex flex-col items-center justify-center h-[calc(100vh-10rem)] p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
+                <p className="text-gray-600">Initializing PDF viewer...</p>
+              </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center justify-center h-[calc(100vh-10rem)] p-8">
+                <div className="text-center max-w-md">
+                  <p className="text-red-600 font-semibold mb-2">Failed to load PDF file</p>
+                  <p className="text-gray-600 text-sm mb-4">{loadError}</p>
+                  <Button
+                    onClick={() => {
+                      setLoadError(null);
+                      window.location.reload();
+                    }}
+                    variant="outline"
+                  >
+                    Retry
+                  </Button>
                 </div>
-              }
+              </div>
+            ) : (
+              <Document
+              key={url} // Add key to prevent re-renders when URL is the same
               onLoadError={(error) => {
                 console.error("PDF load error details:", error);
-                const errorMessage = error?.message || "Unknown error";
-                toast.error(`Error loading PDF: ${errorMessage}`);
+                console.error("PDF URL:", url);
+                console.error("Error name:", error?.name);
+                console.error("Error message:", error?.message);
+                
+                // Ignore struct tree errors - they're non-critical
+                const errorMessage = error?.message || error?.name || "Unknown error";
+                if (errorMessage.includes("sendWithPromise") || errorMessage.includes("struct tree") || errorMessage.includes("getStructTree")) {
+                  console.warn("Struct tree error (non-critical), ignoring:", errorMessage);
+                  // Don't set error for struct tree issues - PDF can still render
+                  return;
+                }
+                
+                // Provide more helpful error messages
+                let userErrorMessage = "Unknown error";
+                if (error?.message) {
+                  userErrorMessage = error.message;
+                } else if (error?.name) {
+                  userErrorMessage = error.name;
+                }
+                
+                // Check if it's a network/CORS issue
+                if (userErrorMessage.includes("Failed to fetch") || userErrorMessage.includes("NetworkError")) {
+                  userErrorMessage = "Failed to load PDF. Please check your connection and try again.";
+                } else if (userErrorMessage.includes("Invalid PDF") || userErrorMessage.includes("Invalid PDF structure")) {
+                  userErrorMessage = "The PDF file appears to be corrupted or invalid. Please try uploading it again.";
+                }
+                
+                setLoadError(userErrorMessage);
+                toast.error(`Error loading PDF: ${userErrorMessage}`);
               }}
-              onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-              file={url}
+              onLoadSuccess={({ numPages }) => {
+                console.log("PDF loaded successfully:", numPages, "pages");
+                setNumPages(numPages);
+                setLoadError(null); // Clear any previous errors
+              }}
+              file={fileConfig}
+              options={pdfOptions}
               className="max-h-full"
+              error={
+                <div className="flex flex-col items-center justify-center h-[calc(100vh-10rem)] p-8">
+                  <div className="text-center max-w-md">
+                    <p className="text-red-600 font-semibold mb-2">Failed to load PDF</p>
+                    <p className="text-gray-600 text-sm mb-4">Please try refreshing the page</p>
+                    <Button
+                      onClick={() => window.location.reload()}
+                      variant="outline"
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              }
             >
               {isLoading && renderedScale ? (
                 <Page
@@ -203,8 +305,18 @@ const PdfRenderer = ({ url }: PdfRendererProps) => {
                   </div>
                 }
                 onRenderSuccess={() => setRenderedScale(scale)}
+                onRenderError={(error) => {
+                  // Ignore struct tree errors - they're non-critical
+                  const errorMsg = error?.message || String(error);
+                  if (errorMsg.includes("sendWithPromise") || errorMsg.includes("struct tree") || errorMsg.includes("getStructTree")) {
+                    console.warn("Page render error (non-critical struct tree):", errorMsg);
+                    return; // Don't show error for struct tree issues
+                  }
+                  console.error("Page render error:", error);
+                }}
               />
             </Document>
+            )}
           </div>
         </SimpleBar>
       </div>

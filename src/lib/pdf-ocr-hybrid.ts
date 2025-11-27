@@ -91,6 +91,7 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
     console.log(`📄 PDF buffer size: ${pdfBuffer.length} bytes, header: ${header}`);
     
     // Try using pdfjs-dist first for accurate page count
+    // NOTE: pdfjs-dist often fails with worker errors in serverless, so we catch and fall back quickly
     try {
       // Always use legacy build (no worker needed, works in serverless)
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
@@ -101,16 +102,36 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
       const uint8Array = new Uint8Array(pdfBuffer);
       
       // Load PDF document with worker disabled - use legacy API that doesn't require worker
-      const loadingTask = pdfjs.getDocument({ 
+      // CRITICAL: Set workerSrc to empty string BEFORE getDocument to ensure main-thread mode
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "";
+      }
+      
+      const documentParams = {
         data: uint8Array,
         verbosity: 0,
         useWorkerFetch: false,
         useSystemFonts: false,
         // Force disable worker completely
         isEvalSupported: false,
-      });
+        disableWorker: true,
+      } as Record<string, unknown>;
       
-      const pdfDoc = await loadingTask.promise;
+      const loadingTask = pdfjs.getDocument(documentParams);
+      
+      // Wrap in try-catch to handle worker-related errors gracefully
+      let pdfDoc;
+      try {
+        pdfDoc = await loadingTask.promise;
+      } catch (loadError) {
+        // If loading fails due to worker issues, throw to trigger fallback
+        const errorMsg = loadError instanceof Error ? loadError.message : String(loadError);
+        if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
+          throw new Error(`PDF loading failed (worker issue): ${errorMsg}`);
+        }
+        throw loadError;
+      }
+      
       const numPages = pdfDoc.numPages;
       
       console.log(`✅ Got accurate page count from pdfjs-dist: ${numPages} pages`);
@@ -137,8 +158,13 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
         };
       }
     } catch (pdfjsError) {
-      console.warn(`⚠️ pdfjs-dist metadata extraction failed, falling back to pdf-parse:`, 
-        pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError));
+      const errorMsg = pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError);
+      // If it's a worker error, immediately fall back to pdf-parse
+      if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
+        console.log(`⚠️ pdfjs-dist worker error detected, skipping pdfjs-dist and using pdf-parse directly`);
+      } else {
+        console.warn(`⚠️ pdfjs-dist metadata extraction failed, falling back to pdf-parse:`, errorMsg);
+      }
     }
     
     // Fallback to pdf-parse
@@ -341,6 +367,11 @@ async function extractTextByPage(
         // Convert Buffer to Uint8Array (pdfjs-dist requires Uint8Array)
         const uint8Array = new Uint8Array(pdfBuffer);
         
+        // CRITICAL: Set workerSrc to empty string BEFORE getDocument to ensure main-thread mode
+        if (pdfjs.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = "";
+        }
+        
         // Load the PDF document with worker disabled - use legacy API
         const loadingTask = pdfjs.getDocument({ 
           data: uint8Array,
@@ -349,9 +380,21 @@ async function extractTextByPage(
           useSystemFonts: false,
           // Force disable worker completely
           isEvalSupported: false,
-        });
+          // Explicitly disable worker
+          disableWorker: true,
+        } as Record<string, unknown>);
         
+        // Wrap in try-catch to handle worker-related errors gracefully
+        try {
         pdfDoc = await loadingTask.promise;
+        } catch (loadError) {
+          // If loading fails due to worker issues, throw to trigger fallback
+          const errorMsg = loadError instanceof Error ? loadError.message : String(loadError);
+          if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
+            throw new Error(`PDF loading failed (worker issue): ${errorMsg}`);
+          }
+          throw loadError;
+        }
         
         // Cache the document
         cachedPdfJsDoc = { buffer: pdfBuffer, doc: pdfDoc };
@@ -374,8 +417,13 @@ async function extractTextByPage(
         return pageText;
       }
     } catch (pdfjsError) {
-      console.warn(`⚠️ pdfjs-dist extraction failed for page ${pageNum}, falling back to pdf-parse:`, 
-        pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError));
+      const errorMsg = pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError);
+      // If it's a worker error, immediately fall back to pdf-parse
+      if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
+        console.log(`⚠️ pdfjs-dist worker error for page ${pageNum}, using pdf-parse fallback`);
+      } else {
+        console.warn(`⚠️ pdfjs-dist extraction failed for page ${pageNum}, falling back to pdf-parse:`, errorMsg);
+      }
     }
     
     // Fallback: Use pdf-parse to extract all text, then split by pages

@@ -31,7 +31,7 @@ export async function createPodcastSections(content: string, fileName: string) {
   }
 }
 
-export async function generateAudioFromText(text: string): Promise<Buffer> {
+export async function generateAudioFromText(text: string): Promise<{ buffer: Buffer; message?: string }> {
   try {
     console.log("🎙️ Generating real speech using TTS API...");
     console.log("📝 Text length:", text.length, "characters");
@@ -67,19 +67,19 @@ export async function generateAudioFromText(text: string): Promise<Buffer> {
     console.log("🎙️ Processing text:", textToProcess.length, "characters");
 
     // Generate real speech audio using a free TTS API
-    const audioBuffer = await generateRealTTS(textToProcess);
+    const result = await generateRealTTS(textToProcess);
 
     console.log(
       "✅ Real TTS audio generation successful! Size:",
-      audioBuffer.length,
+      result.buffer.length,
       "bytes",
     );
 
-    if (audioBuffer.length === 0) {
+    if (result.buffer.length === 0) {
       throw new Error("Generated audio buffer is empty");
     }
 
-    return audioBuffer;
+    return result;
   } catch (error) {
     console.error("❌ Audio generation failed:", error);
     throw new Error(
@@ -88,7 +88,7 @@ export async function generateAudioFromText(text: string): Promise<Buffer> {
   }
 }
 
-async function generateRealTTS(text: string): Promise<Buffer> {
+async function generateRealTTS(text: string): Promise<{ buffer: Buffer; message?: string }> {
   try {
     console.log("🎙️ Using real TTS service...");
 
@@ -96,9 +96,21 @@ async function generateRealTTS(text: string): Promise<Buffer> {
     const audioBuffer = await fetchTTSFromAPI(text);
 
     console.log("✅ Real TTS audio generated successfully!");
-    return audioBuffer;
+    return { buffer: audioBuffer };
   } catch (error) {
     console.error("❌ Real TTS generation error:", error);
+    
+    // If error is quota exceeded, provide a helpful message
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (errorMsg.includes('quota') || errorMsg.includes('exceeded') || errorMsg.includes('401')) {
+      console.log("⚠️ ElevenLabs quota exceeded, using fallback...");
+      const fallbackBuffer = await generateImprovedSynthesizedSpeech(text);
+      return { 
+        buffer: fallbackBuffer, 
+        message: "Generated with fallback audio synthesis (ElevenLabs quota exceeded)" 
+      };
+    }
+    
     throw error;
   }
 }

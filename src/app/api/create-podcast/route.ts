@@ -137,10 +137,9 @@ export async function POST(request: NextRequest) {
         console.log(`✅ Fetched PDF from R2: ${buffer.length} bytes`);
 
         // Extract text using hybrid PDF processor
-        // Limit to first 4 pages for podcasts to reduce ElevenLabs API usage
         const extractedText = await processHybridPdf(buffer, {
           extractImageText: false, // Faster extraction without OCR
-          maxPages: 4, // Only use first 4 pages for podcasts
+          maxPages: 50,
         });
 
         if (extractedText && extractedText.trim()) {
@@ -226,6 +225,7 @@ export async function POST(request: NextRequest) {
     // Generate audio for the single section
     const section = createdSections[0]; // Get the single section
     let audioUrl = null;
+    let audioInfo: string | undefined;
 
     try {
       console.log(`🎙️ Generating audio for: ${section.title}`);
@@ -240,8 +240,13 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`🔍 Debug: Starting audio generation with ElevenLabs...`);
-      const audioBuffer = await generateAudioFromText(section.content);
+      const { buffer: audioBuffer, message: audioMessage } =
+        await generateAudioFromText(section.content);
       console.log(`✅ Audio generated, size: ${audioBuffer.length} bytes`);
+      if (audioMessage) {
+        console.log(`ℹ️ Audio generation note: ${audioMessage}`);
+        audioInfo = audioMessage;
+      }
 
       if (audioBuffer.length === 0) {
         throw new Error("Generated audio buffer is empty");
@@ -343,95 +348,30 @@ export async function POST(request: NextRequest) {
       audioUrl: audioUrl || `/api/audio/${podcast.id}-${section.id}.wav`,
     };
 
-    return NextResponse.json({
+    const responsePayload: {
+      message: string;
+      podcast: unknown;
+      audioInfo?: string;
+    } = {
       message: "Podcast created successfully",
       podcast: {
         ...podcast,
         sections: [finalSection],
         totalDuration: formatDuration(totalDurationSeconds),
       },
-    });
+    };
+
+    if (audioInfo) {
+      responsePayload.audioInfo = audioInfo;
+      responsePayload.message = `Podcast created successfully. ${audioInfo}`;
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error: unknown) {
     console.error("Error creating podcast:", error);
-    
-    let errorMessage = "Failed to create podcast";
-    let errorDetails = "Unknown error occurred";
-    
-    // Type guard for error objects with status/code
-    interface ErrorWithStatus {
-      status?: number;
-      code?: number;
-      message?: string;
-    }
-    
-    if (error instanceof Error) {
-      errorDetails = error.message || "Unknown error";
-      const errorWithStatus = error as Error & ErrorWithStatus;
-      // Handle 402 Payment Required (insufficient credits)
-      if (error.message.includes("402") || errorWithStatus?.status === 402 || errorWithStatus?.code === 402) {
-        errorMessage = "Insufficient API credits. Please add credits to your OpenAI account to continue.";
-        errorDetails = error.message || "Your OpenAI account has insufficient credits.";
-        return NextResponse.json(
-          {
-            error: errorMessage,
-            details: errorDetails,
-            suggestion: "Please add credits to your OpenAI account to continue using this service.",
-          },
-          { status: 402 },
-        );
-      } else if (error.message.includes("API") || error.message.includes("ElevenLabs") || error.message.includes("OpenAI")) {
-        errorMessage = "Failed to generate podcast audio. Please check your API keys and try again.";
-      } else if (error.message.includes("database") || error.message.includes("Prisma")) {
-        errorMessage = "Failed to save podcast to database. Please try again.";
-      } else if (error.message.includes("timeout") || error.message.includes("Timeout")) {
-        errorMessage = "Request timed out. Please try again.";
-      } else {
-        errorMessage = `Failed to create podcast: ${error.message.substring(0, 100)}`;
-      }
-    } else {
-      errorDetails = String(error);
-      // Check for 402 in non-Error objects
-      const errorWithStatus = error as ErrorWithStatus;
-      if (errorWithStatus?.status === 402 || errorWithStatus?.code === 402) {
-        return NextResponse.json(
-          {
-            error: "Insufficient API credits. Please add credits to your OpenAI account to continue.",
-            details: "Your OpenAI account has insufficient credits.",
-            suggestion: "Please add credits to your OpenAI account to continue using this service.",
-          },
-          { status: 402 },
-        );
-      }
-    }
-    
-    // Always return proper JSON response
-    try {
-      return NextResponse.json(
-        { 
-          error: errorMessage,
-          details: errorDetails
-        },
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        },
-      );
-    } catch (jsonError) {
-      console.error("Failed to serialize error response:", jsonError);
-      return new NextResponse(
-        JSON.stringify({ 
-          error: "Internal server error",
-          details: "An unexpected error occurred"
-        }),
-        { 
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        }
-      );
-    }
+    return NextResponse.json(
+      { error: "Failed to create podcast" },
+      { status: 500 },
+    );
   }
 }

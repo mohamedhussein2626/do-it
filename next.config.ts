@@ -21,41 +21,63 @@ const nextConfig: NextConfig = {
     // Ensure pdf-parse and its dependencies work properly
     if (isServer) {
       try {
-        const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
-        
-        // Polyfill browser APIs that pdf-parse might need
-        config.resolve.fallback = {
-          ...config.resolve.fallback,
-          canvas: false,
-          encoding: false,
+        const path = require("path");
+        const noopWorkerPath = path.resolve(__dirname, "src/lib/noop-pdf-worker.js");
+      
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        canvas: false,
+        encoding: false,
+      };
+      
+        // Add alias for all possible worker import paths
+      config.resolve.alias = {
+        ...config.resolve.alias,
+          "pdf.worker.js": noopWorkerPath,
+          "./pdf.worker.js": noopWorkerPath,
+          "../pdf.worker.js": noopWorkerPath,
+          "pdfjs-dist/legacy/build/pdf.worker.js": noopWorkerPath,
+          "pdfjs-dist/build/pdf.worker.js": noopWorkerPath,
+          "pdfjs-dist/legacy/build/pdf.worker.mjs": noopWorkerPath,
+          "pdfjs-dist/build/pdf.worker.mjs": noopWorkerPath,
         };
         
-        // Handle both relative and module paths for worker
-        // pdfjs-dist may try to require './pdf.worker.js' or 'pdf.worker.js'
-        config.resolve.alias = {
-          ...config.resolve.alias,
-          "pdf.worker.js": workerPath,
-          "./pdf.worker.js": workerPath,
-          "pdfjs-dist/legacy/build/pdf.worker.js": workerPath,
-          "pdfjs-dist/build/pdf.worker.js": workerPath,
-        };
-        
-        // Use NormalModuleReplacementPlugin to replace worker requires at build time
+        // Replace all pdf.worker.js imports with our no-op worker
+        // This handles both file paths and package imports
         config.plugins.push(
           new webpack.NormalModuleReplacementPlugin(
             /pdf\.worker\.(js|mjs)$/,
             (resource: { request: string }) => {
-              // Replace any pdf.worker.js requires with the actual worker path
-              if (resource.request.includes('pdf.worker')) {
-                resource.request = workerPath;
+              if (resource.request && resource.request.includes('pdf.worker')) {
+                resource.request = noopWorkerPath;
               }
             }
           )
         );
         
-        console.log(`[next.config] Configured PDF worker alias: ${workerPath}`);
+        // Handle bare package imports like 'pdf.worker.js'
+        config.plugins.push(
+          new webpack.NormalModuleReplacementPlugin(
+            /^pdf\.worker\.js$/,
+            (resource: { request: string }) => {
+              resource.request = noopWorkerPath;
+            }
+          )
+        );
+        
+        // Also handle require() calls for pdf.worker.js
+        config.plugins.push(
+          new webpack.NormalModuleReplacementPlugin(
+            /^pdfjs-dist[\/\\]legacy[\/\\]build[\/\\]pdf\.worker\.js$/,
+            (resource: { request: string }) => {
+              resource.request = noopWorkerPath;
+            }
+          )
+        );
+        
+        console.log(`[next.config] Server PDF worker requests mapped to no-op worker: ${noopWorkerPath}`);
       } catch (error) {
-        console.warn(`[next.config] Could not resolve PDF worker path:`, error);
+        console.warn(`[next.config] Could not configure PDF worker:`, error);
       }
     }
     

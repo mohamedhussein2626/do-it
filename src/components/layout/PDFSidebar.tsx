@@ -9,10 +9,6 @@ import {
   FileAudio,
   Menu,
   X,
-  BarChart3,
-  BookOpen,
-  Search,
-  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -109,11 +105,11 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
-  
+
   // Use a ref to always have the latest fileId (avoid closure issues)
   // Initialize ref with current fileId prop
   const fileIdRef = useRef<string>(fileId);
-  
+
   // Update ref immediately whenever fileId prop changes (synchronous update)
   // This ensures we always have the latest fileId, even if handleNav is called immediately
   useEffect(() => {
@@ -129,11 +125,7 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
     { id: "transcript", icon: FileAudio, label: "Transcript" },
   ];
 
-  const toolsItems = [
-    { id: "reading-insights", icon: BarChart3, label: "Reading Insights" },
-    { id: "keyword-finder", icon: Search, label: "Keyword Finder" },
-    { id: "bookmarks", icon: BookOpen, label: "Bookmarks" },
-  ];
+
 
   const handleNav = async (itemId: string) => {
     // Use the fileId prop directly (most up-to-date) or fallback to ref
@@ -143,13 +135,13 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
     console.log("📁 PDFSidebar - fileId from props:", fileId);
     console.log("📁 PDFSidebar - fileId from ref:", fileIdRef.current);
     console.log("📁 PDFSidebar - Using fileId:", currentFileId);
-    
+
     if (!currentFileId) {
       console.error("❌ No fileId available for navigation!");
       setError("No file selected. Please select a file first.");
       return;
     }
-    
+
     setActiveView(itemId);
 
     // For generation pages, trigger individual API based on feature
@@ -162,9 +154,9 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
       setLoading(true);
       setLoadingMessage?.(
         itemId === "quiz" ? "Generating Quiz..." :
-        itemId === "flashcards" ? "Generating Flashcards..." :
-        itemId === "transcript" ? "Generating Transcript..." :
-        "Generating Podcast..."
+          itemId === "flashcards" ? "Generating Flashcards..." :
+            itemId === "transcript" ? "Generating Transcript..." :
+              "Generating Podcast..."
       );
       setError(null);
 
@@ -180,10 +172,10 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
           itemId === "quiz"
             ? "/api/create-quiz"
             : itemId === "flashcards"
-            ? "/api/create-flashcards"
-            : itemId === "transcript"
-            ? "/api/create-transcript"
-            : "/api/create-podcast";
+              ? "/api/create-flashcards"
+              : itemId === "transcript"
+                ? "/api/create-transcript"
+                : "/api/create-podcast";
 
         console.log(`📤 Calling ${endpoint} API with fileId:`, currentFileId);
         const response = await fetch(endpoint, {
@@ -210,7 +202,7 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
             // If response parsing fails, use status text
             errorData = { error: response.statusText || "Unknown error" };
           }
-          
+
           // Only log if we have meaningful error data
           if (errorData.error && errorData.error !== "Unknown error" && errorData.error.trim().length > 0) {
             console.warn(`${itemId} generation failed:`, errorData.error);
@@ -220,7 +212,7 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
           } else {
             console.warn(`${itemId} generation failed with unknown error`);
           }
-          
+
           // Don't throw error - just log it since user has already navigated
           // The page will handle showing appropriate state
         } else {
@@ -243,15 +235,6 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
       const currentFileId = fileId || fileIdRef.current;
       console.log("💬 Chatbot clicked, using fileId:", currentFileId);
       router.push(`/dashboard/${currentFileId}/chatbot`);
-    } else if (
-      itemId === "reading-insights" ||
-      itemId === "keyword-finder" ||
-      itemId === "bookmarks"
-    ) {
-      // Tools section - navigate to tool pages
-      const currentFileId = fileId || fileIdRef.current;
-      console.log(`🔧 Tool clicked: ${itemId}, using fileId:`, currentFileId);
-      router.push(`/dashboard/${currentFileId}/${itemId}`);
     } else {
       const currentFileId = fileId || fileIdRef.current;
       console.log("🔄 Other view clicked, using fileId:", currentFileId);
@@ -262,9 +245,8 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
   return (
     <>
       <div
-        className={`${
-          sidebarOpen ? "w-64" : "w-16"
-        } bg-white border-r border-gray-200 transition-all duration-300 fixed top-16 left-0 h-[calc(100vh-4rem)] flex flex-col overflow-hidden z-40`}
+        className={`${sidebarOpen ? "w-64" : "w-16"
+          } bg-white border-r border-gray-200 transition-all duration-300 fixed top-16 left-0 h-[calc(100vh-4rem)] flex flex-col overflow-hidden z-40`}
       >
         {/* Header - Fixed */}
         <div className="flex-shrink-0 p-4 border-b border-gray-100">
@@ -308,11 +290,10 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
               <button
                 key={item.id}
                 onClick={() => handleNav(item.id)}
-                className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
-                  activeView === item.id
+                className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${activeView === item.id
                     ? "bg-blue-50 text-blue-600 border-r-2 border-blue-600"
                     : "text-gray-700 hover:text-gray-900"
-                }`}
+                  }`}
                 type="button"
               >
                 <item.icon className="w-5 h-5 flex-shrink-0" />
@@ -322,39 +303,9 @@ const PDFSidebar: React.FC<Omit<PDFSidebarProps, "setSidebarOpen">> = ({
               </button>
             ))}
 
-            {/* Tools Section Divider */}
-            {sidebarOpen && (
-              <div className="px-4 py-2 mt-4 mb-2">
-                <div className="flex items-center space-x-2">
-                  <Wrench className="w-4 h-4 text-gray-400" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Tools
-                  </span>
-                </div>
-              </div>
-            )}
-            {!sidebarOpen && (
-              <div className="px-4 py-2 mt-4 mb-2 border-t border-gray-200"></div>
-            )}
 
-            {/* Tools Items */}
-            {toolsItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => handleNav(item.id)}
-                className={`w-full flex items-center space-x-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
-                  activeView === item.id
-                    ? "bg-blue-50 text-blue-600 border-r-2 border-blue-600"
-                    : "text-gray-700 hover:text-gray-900"
-                }`}
-                type="button"
-              >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && (
-                  <span className="font-medium truncate">{item.label}</span>
-                )}
-              </button>
-            ))}
+
+
 
             {/* Error State */}
             {error && (

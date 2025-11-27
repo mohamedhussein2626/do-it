@@ -5,13 +5,14 @@
 
 // Import polyfills FIRST before any pdf-parse usage
 import "./init-polyfills";
-import { processHybridPdf } from "./pdf-ocr-hybrid"; // Use the same extraction method as upload
 import { db } from "@/db";
 import { getServerSession } from "@/lib/auth-api";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { r2Client, R2_BUCKET_NAME } from "@/lib/r2-config";
 import { Readable } from "stream";
 import mammoth from "mammoth";
+import { configurePdfjsWorker } from "./pdf-worker-utils";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
 
 // ============================================================================
 // Types
@@ -239,6 +240,65 @@ async function extractTextDirectlyFromPdf(buffer: Buffer): Promise<{
   }
 }
 
+// Fallback extraction using pdfjs-dist directly (page-by-page)
+async function extractTextWithPdfjs(
+  buffer: Buffer,
+  options: { maxPages?: number } = {}
+): Promise<{ text: string; numPages: number }> {
+  const { maxPages = 200 } = options;
+  console.log("📄 Attempting pdfjs-dist per-page extraction...");
+
+  try {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
+    configurePdfjsWorker(pdfjs, "pdfjs-dist(text-fallback)");
+
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      isEvalSupported: false,
+      useSystemFonts: false,
+      useWorkerFetch: false,
+      disableWorker: true,
+    } as unknown as Record<string, unknown>);
+
+    const doc = await loadingTask.promise;
+    const totalPages = doc.numPages;
+    const pagesToProcess = Math.min(totalPages, maxPages);
+    console.log(`📄 pdfjs-dist fallback will process ${pagesToProcess}/${totalPages} pages`);
+
+    const pageTexts: string[] = [];
+
+    for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+      try {
+        const page = await doc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item) => (isTextItem(item) ? item.str : ""))
+          .join(" ");
+
+        pageTexts.push(pageText.trim());
+        if (pageNum % 10 === 0) {
+          console.log(`📄 Processed ${pageNum} pages via pdfjs-dist fallback`);
+        }
+      } catch (pageError) {
+        console.warn(`⚠️ Failed to extract page ${pageNum} via pdfjs-dist:`, pageError);
+      }
+    }
+
+    const combined = pageTexts.join("\n\n").trim();
+    return {
+      text: combined,
+      numPages: totalPages,
+    };
+  } catch (error) {
+    console.error("❌ pdfjs-dist fallback extraction failed:", error);
+    return { text: "", numPages: 1 };
+  }
+}
+
+function isTextItem(item: unknown): item is TextItem {
+  return typeof item === "object" && !!item && "str" in item && typeof (item as Record<string, unknown>).str === "string";
+}
+
 // Extract text from PDF - using the same method as upload (processHybridPdf)
 // This is the PRIMARY method that works during upload
 async function extractTextFromPdf(buffer: Buffer): Promise<{
@@ -262,51 +322,35 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
     console.log(`✅ PDF header valid: ${header}`);
   }
   
-  // Use processHybridPdf FIRST - this is what works during upload!
-  // IMPORTANT: Use the SAME settings as upload (extractImageText: true)
-  console.log("🔍 Using processHybridPdf (same method as upload with extractImageText: true)...");
+  // Use direct pdf-parse FIRST to avoid worker errors
+  console.log("🔍 Using direct pdf-parse extraction (avoids pdfjs-dist worker errors)...");
   let fullText = "";
   let numPages = 1;
   
   try {
-    // Use the EXACT same method as upload - this is what works!
-    fullText = await processHybridPdf(buffer, {
-      extractImageText: true, // Same as upload - extract from images too
-      maxPages: Infinity, // Process ALL pages
-    });
+    // Use pdf-parse directly to avoid pdfjs-dist worker initialization
+    const result = await extractTextDirectlyFromPdf(buffer);
+    fullText = result.text;
+    numPages = result.numPages;
     
-    console.log(`✅ processHybridPdf extracted: ${fullText.length} characters`);
+    console.log(`✅ Direct pdf-parse extracted: ${fullText.length} characters, ${numPages} pages`);
     
     // If still no text, try without OCR (might be faster for some PDFs)
     if (!fullText || fullText.trim().length === 0) {
-      console.log("⚠️ No text with OCR, trying without OCR...");
-      try {
-        fullText = await processHybridPdf(buffer, {
-          extractImageText: false, // Try without OCR
-          maxPages: Infinity, // Process ALL pages
-        });
-        console.log(`✅ processHybridPdf (no OCR) extracted: ${fullText.length} characters`);
-      } catch (noOcrError) {
-        console.warn("⚠️ No-OCR extraction also failed:", noOcrError);
-      }
+      console.warn("⚠️ pdf-parse returned empty text - PDF might be image-only or corrupted");
     }
   } catch (error) {
-    console.error("❌ processHybridPdf failed:", error);
+    console.error("❌ Direct pdf-parse extraction failed:", error);
     console.error("❌ Error details:", error instanceof Error ? error.stack : String(error));
-    // Try direct pdf-parse as last resort
-    console.log("⚠️ Trying direct pdf-parse as fallback...");
-    try {
-      const directResult = await extractTextDirectlyFromPdf(buffer);
-      if (directResult.text && directResult.text.trim().length > 0) {
-        fullText = directResult.text;
-        numPages = directResult.numPages;
-        console.log(`✅ Direct pdf-parse fallback successful: ${fullText.length} chars, ${numPages} pages`);
-      }
-    } catch (parseError) {
-      console.error("❌ Direct pdf-parse also failed:", parseError);
-    }
   }
   
+  if (!fullText || fullText.trim().length === 0) {
+    console.warn("⚠️ No text extracted via pdf-parse, trying pdfjs-dist fallback...");
+    const pdfjsResult = await extractTextWithPdfjs(buffer, { maxPages: 250 });
+    fullText = pdfjsResult.text;
+    numPages = pdfjsResult.numPages;
+  }
+
   if (!fullText || fullText.trim().length === 0) {
     console.warn("⚠️ No text extracted from PDF using any method");
     return {
@@ -316,15 +360,9 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{
     };
   }
   
-  // Get accurate page count - try to extract from PDF metadata
-  // If that fails, estimate from text
+  // Estimate page count from text if needed
   try {
-    // Try to get page count from pdf-parse
-    const directResult = await extractTextDirectlyFromPdf(buffer);
-    if (directResult.numPages > 1) {
-      numPages = directResult.numPages;
-      console.log(`📄 Got page count from pdf-parse: ${numPages} pages`);
-    } else {
+    if (numPages <= 1 && fullText && fullText.trim().length > 0) {
       // Estimate from text
       const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length;
       numPages = Math.max(1, Math.ceil(wordCount / 500));

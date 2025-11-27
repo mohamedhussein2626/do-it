@@ -3,7 +3,6 @@ import { getServerSession } from "@/lib/auth-api";
 import { db } from "@/db";
 import { uploadToR2, generateFileKey } from "@/lib/r2-upload";
 import mammoth from "mammoth";
-import { processHybridPdf } from "@/lib/pdf-ocr-hybrid";
 import { getUserPlan } from "@/lib/plan-utils";
 
 // Force Node.js runtime for this route to support pdf-parse
@@ -24,17 +23,14 @@ function chunkText(text: string, maxWords = 500): string[] {
 
 // File processors for different file types
 async function processPDF(file: File): Promise<string> {
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  // Use hybrid processing (extracts both embedded text AND text from images)
-  // Process ALL pages - no limit
-  const text = await processHybridPdf(buffer, {
-    extractImageText: true, // Also extract text from images/diagrams
-    maxPages: Infinity, // Process ALL pages
-  });
-
-  return text;
+  void file;
+  console.log("📄 PDF upload - skipping text extraction during upload for speed");
+  console.log("📄 Text will be extracted on-demand when features need it");
+  
+  // SKIP PDF text extraction during upload to avoid slowness
+  // Each feature (podcast, quiz, etc.) will extract text when needed
+  // This makes uploads instant and avoids worker issues
+  return "";
 }
 
 async function processDOCX(file: File): Promise<string> {
