@@ -25,8 +25,9 @@ async function extractPdfTextFast(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
+      pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/legacy/build/pdf.worker.js";
     }
+    (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const uint8Array = new Uint8Array(buffer);
     const loadingTask = pdfjs.getDocument({
       data: uint8Array,
@@ -73,8 +74,9 @@ async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
+      pdfjs.GlobalWorkerOptions.workerSrc = "pdfjs-dist/legacy/build/pdf.worker.js";
     }
+    (pdfjs as { disableWorker?: boolean }).disableWorker = true;
     const pdfDoc = await pdfjs.getDocument({
       data: new Uint8Array(buffer),
       useWorkerFetch: false,
