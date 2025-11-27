@@ -369,9 +369,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(responsePayload);
   } catch (error: unknown) {
     console.error("Error creating podcast:", error);
-    return NextResponse.json(
+        return NextResponse.json(
       { error: "Failed to create podcast" },
       { status: 500 },
-    );
+      );
   }
 }

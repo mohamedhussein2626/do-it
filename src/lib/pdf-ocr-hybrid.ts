@@ -119,15 +119,23 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
       
       const loadingTask = pdfjs.getDocument(documentParams);
       
-      // Wrap in try-catch to handle worker-related errors gracefully
+      // Wrap in try-catch with timeout to handle worker-related errors and hangs gracefully
       let pdfDoc;
       try {
-        pdfDoc = await loadingTask.promise;
+        console.log("📄 Loading PDF document with pdfjs-dist...");
+        // Add 15 second timeout for getDocument - it can hang in serverless
+        const loadPromise = loadingTask.promise;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("PDF loading timed out after 15s")), 15000);
+        });
+        pdfDoc = await Promise.race([loadPromise, timeoutPromise]);
+        console.log("✅ PDF document loaded successfully");
       } catch (loadError) {
-        // If loading fails due to worker issues, throw to trigger fallback
+        // If loading fails due to worker issues or timeout, throw to trigger fallback
         const errorMsg = loadError instanceof Error ? loadError.message : String(loadError);
-        if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
-          throw new Error(`PDF loading failed (worker issue): ${errorMsg}`);
+        console.warn(`⚠️ pdfjs-dist loading failed: ${errorMsg}`);
+        if (errorMsg.includes('worker') || errorMsg.includes('Unknown action') || errorMsg.includes('timed out')) {
+          throw new Error(`PDF loading failed (worker/timeout issue): ${errorMsg}`);
         }
         throw loadError;
       }
@@ -159,24 +167,32 @@ async function getMetadata(pdfBuffer: Buffer): Promise<PDFInfo> {
       }
     } catch (pdfjsError) {
       const errorMsg = pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError);
-      // If it's a worker error, immediately fall back to pdf-parse
-      if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
-        console.log(`⚠️ pdfjs-dist worker error detected, skipping pdfjs-dist and using pdf-parse directly`);
+      // If it's a worker error or timeout, immediately fall back to pdf-parse
+      if (errorMsg.includes('worker') || errorMsg.includes('Unknown action') || errorMsg.includes('timed out')) {
+        console.log(`⚠️ pdfjs-dist error detected (${errorMsg}), skipping pdfjs-dist and using pdf-parse directly`);
       } else {
         console.warn(`⚠️ pdfjs-dist metadata extraction failed, falling back to pdf-parse:`, errorMsg);
       }
     }
     
     // Fallback to pdf-parse
+    console.log("🔄 Falling back to pdf-parse for metadata...");
     const parseFn = await getPdfParseFunction();
     if (!parseFn) {
+      console.error("❌ pdf-parse function is not available");
       throw new Error("pdf-parse function is not available");
     }
+    console.log("✅ pdf-parse function loaded");
     
-    // Try calling it as a function first
+    // Try calling it as a function first with timeout
     let data: Record<string, unknown>;
     try {
-      const result = await parseFn(pdfBuffer);
+      console.log("📄 Parsing PDF with pdf-parse...");
+      const parsePromise = parseFn(pdfBuffer);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("pdf-parse timed out after 20s")), 20000);
+      });
+      const result = await Promise.race([parsePromise, timeoutPromise]);
       data = result as Record<string, unknown>;
       console.log("✅ PDF parsed successfully");
       console.log("📊 PDF parse result keys:", Object.keys(data));
@@ -384,14 +400,18 @@ async function extractTextByPage(
           disableWorker: true,
         } as Record<string, unknown>);
         
-        // Wrap in try-catch to handle worker-related errors gracefully
+        // Wrap in try-catch with timeout to handle worker-related errors and hangs gracefully
         try {
-        pdfDoc = await loadingTask.promise;
+          const loadPromise = loadingTask.promise;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error("PDF loading timed out after 10s")), 10000);
+          });
+          pdfDoc = await Promise.race([loadPromise, timeoutPromise]);
         } catch (loadError) {
-          // If loading fails due to worker issues, throw to trigger fallback
+          // If loading fails due to worker issues or timeout, throw to trigger fallback
           const errorMsg = loadError instanceof Error ? loadError.message : String(loadError);
-          if (errorMsg.includes('worker') || errorMsg.includes('Unknown action')) {
-            throw new Error(`PDF loading failed (worker issue): ${errorMsg}`);
+          if (errorMsg.includes('worker') || errorMsg.includes('Unknown action') || errorMsg.includes('timed out')) {
+            throw new Error(`PDF loading failed (worker/timeout issue): ${errorMsg}`);
           }
           throw loadError;
         }
@@ -683,6 +703,26 @@ async function processPage(
 /**
  * Main function: Process entire PDF with optimized extraction
  */
+// Helper function to add timeout to promises
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      console.error(`⏱️ ${label} timed out after ${ms / 1000}s`);
+      reject(new Error(`${label} timed out after ${ms / 1000}s`));
+    }, ms);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 export async function processHybridPdf(
   pdfBuffer: Buffer,
   options: ProcessOptions = {}
@@ -696,10 +736,18 @@ export async function processHybridPdf(
   console.log(`📦 Buffer size: ${pdfBuffer.length} bytes`);
   
   try {
-    // Get PDF metadata - getMetadata now returns defaults instead of throwing
+    // Get PDF metadata with timeout - getMetadata now returns defaults instead of throwing
     console.log("🔄 Getting PDF metadata...");
-    const metadata = await getMetadata(pdfBuffer);
-    console.log(`📊 PDF metadata retrieved: ${metadata.numPages} pages`);
+    let metadata: PDFInfo;
+    try {
+      metadata = await withTimeout(getMetadata(pdfBuffer), 30000, "PDF metadata extraction");
+      console.log(`📊 PDF metadata retrieved: ${metadata.numPages} pages`);
+    } catch (metadataError) {
+      console.warn(`⚠️ Metadata extraction failed/timed out, using defaults:`, metadataError);
+      // Use defaults - assume 1 page and continue
+      metadata = { numPages: 1, info: {}, metadata: undefined };
+      console.log(`📊 Using default metadata: ${metadata.numPages} pages`);
+    }
     
     // Process all pages (or up to maxPages if specified)
     // If maxPages is Infinity, process all pages
