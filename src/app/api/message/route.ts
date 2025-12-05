@@ -13,6 +13,7 @@ const openai = new OpenAI({
     "X-Title": "Notebooklama App",
   },
 });
+
 export const POST = async (req: NextRequest) => {
   try {
     const body = await req.json();
@@ -41,22 +42,21 @@ export const POST = async (req: NextRequest) => {
     });
 
     const chunks = await db.chunk.findMany({
-      where: {
-        fileId,
-      },
+      where: { fileId },
       take: 10,
     });
 
-    // Get previous messages for context (currently unused but available for future use)
+    // Not used now, but you can use them later
     await db.message.findMany({
       where: { fileId },
       orderBy: { createdAt: "desc" },
       take: 2,
     });
 
-    const response = await openai.chat.completions.create({
+    // 🔥 Correct streaming call:
+    const completion = await openai.chat.completions.create({
       model: "mistralai/mistral-7b-instruct:free", // FREE model - no credits needed
-
+      
       temperature: 0.7,
       max_tokens: 1024,
       stream: true,
@@ -72,17 +72,18 @@ Here is the extracted content from the PDF:
 
 ${chunks.map((c) => c.text).join("\n\n")}
 
-Now, please respond to the following prompt: "${message}"
-      `,
+Now, answer the following prompt: "${message}"
+          `,
         },
       ],
     });
 
-    const stream = OpenAIStream(response as unknown as Response, {
-      async onCompletion(completion) {
+    // 🔥 No casting needed — completion is a Stream
+    const stream = OpenAIStream(completion, {
+      async onCompletion(completionText) {
         await db.message.create({
           data: {
-            text: completion,
+            text: completionText,
             isUserMessage: false,
             fileId,
             userId: user.id,
