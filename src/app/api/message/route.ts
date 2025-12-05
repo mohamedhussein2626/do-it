@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { getUserFromRequest } from "@/lib/auth";
 import { SendMessageValidator } from "@/lib/validators/SendMessageValidator";
 import { NextRequest } from "next/server";
-import { OpenAIStream, StreamingTextResponse } from "ai";
+import { StreamingTextResponse } from "ai";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -53,10 +53,8 @@ export const POST = async (req: NextRequest) => {
       take: 2,
     });
 
-    // 🔥 Correct streaming call:
-    const completion = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "mistralai/mistral-7b-instruct:free", // FREE model - no credits needed
-      
       temperature: 0.7,
       max_tokens: 1024,
       stream: true,
@@ -73,22 +71,43 @@ Here is the extracted content from the PDF:
 ${chunks.map((c) => c.text).join("\n\n")}
 
 Now, answer the following prompt: "${message}"
-          `,
+      `,
         },
       ],
     });
 
-    // 🔥 No casting needed — completion is a Stream
-    const stream = OpenAIStream(completion, {
-      async onCompletion(completionText) {
-        await db.message.create({
-          data: {
-            text: completionText,
-            isUserMessage: false,
-            fileId,
-            userId: user.id,
-          },
-        });
+    // Create a custom stream transformer for OpenRouter
+    const encoder = new TextEncoder();
+    let fullCompletion = "";
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of response) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              fullCompletion += content;
+              controller.enqueue(encoder.encode(content));
+            }
+          }
+          
+          // Save the complete message to database
+          if (fullCompletion.trim()) {
+            await db.message.create({
+              data: {
+                text: fullCompletion.trim(),
+                isUserMessage: false,
+                fileId,
+                userId: user.id,
+              },
+            });
+          }
+          
+          controller.close();
+        } catch (error) {
+          console.error("Stream error:", error);
+          controller.error(error);
+        }
       },
     });
 
