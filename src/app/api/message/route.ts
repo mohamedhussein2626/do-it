@@ -55,6 +55,8 @@ export const POST = async (req: NextRequest) => {
 
     const response = await openai.chat.completions.create({
       model: "mistralai/mistral-7b-instruct:free", // FREE model - no credits needed
+
+      // FREE model - no credits needed
       temperature: 0.7,
       max_tokens: 1024,
       stream: true,
@@ -90,7 +92,7 @@ Now, answer the following prompt: "${message}"
               controller.enqueue(encoder.encode(content));
             }
           }
-          
+
           // Save the complete message to database
           if (fullCompletion.trim()) {
             await db.message.create({
@@ -102,7 +104,7 @@ Now, answer the following prompt: "${message}"
               },
             });
           }
-          
+
           controller.close();
         } catch (error) {
           console.error("Stream error:", error);
