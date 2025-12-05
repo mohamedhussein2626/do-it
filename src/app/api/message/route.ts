@@ -6,9 +6,13 @@ import { OpenAIStream, StreamingTextResponse } from "ai";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+  defaultHeaders: {
+    "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    "X-Title": "Notebooklama App",
+  },
 });
-
 export const POST = async (req: NextRequest) => {
   try {
     const body = await req.json();
@@ -51,7 +55,8 @@ export const POST = async (req: NextRequest) => {
     });
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // OpenAI model
+      model: "mistralai/mistral-7b-instruct:free", // FREE model - no credits needed
+
       temperature: 0.7,
       max_tokens: 1024,
       stream: true,
